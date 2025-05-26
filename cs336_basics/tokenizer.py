@@ -1,12 +1,17 @@
 """Implement a BPE based subword tokenizer."""
 
+import cProfile
+from collections import defaultdict
 import concurrent.futures
 
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
+import io
 import json
 import os
 import pickle
+from pstats import SortKey
+import pstats
 import sys
 import time
 import regex as re
@@ -102,18 +107,19 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
         for pretoken, count in future.result().items():
             result[pretoken] = result.get(pretoken, 0) + count
 
-    print("pretokenization is over.")
+    print("pretokenization is over. number of pretokens:", len(result))
     return result
 
 
-def update_pair_frequency(pair_frequencies: dict[tuple[bytes, bytes], int], pretoken: tuple[bytes, ...], count: int):
+def update_pair_frequency(pair_frequencies: dict[tuple[bytes, bytes], int], pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]], pretoken: tuple[bytes, ...], count: int, index: int):
     for i in range(len(pretoken) - 1):
         pair_frequencies[(pretoken[i], pretoken[i + 1])] = (
             pair_frequencies.get((pretoken[i], pretoken[i + 1]), 0) + count
         )
+        pairs_to_pretoken_indices[(pretoken[i], pretoken[i + 1])].add(index)
 
 
-def update_pretoken_with_merge(
+def update_pair_frequencies_with_merge(
     pretoken: tuple[bytes, ...], count: int, pair: tuple[bytes, bytes], pair_frequencies: dict[tuple[bytes, bytes], int]
 ):
     new_pretoken: list[bytes] = []
@@ -169,10 +175,12 @@ def run_bpe(input_path: str, vocabulary_size: int, special_tokens: list[str]) ->
         pretokens = pretokenize_corpus_parallel(f, num_processes=7, special_tokens=special_tokens)
 
     merges: list[tuple[bytes, bytes]] = []
+    pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]] = defaultdict(set)
 
-    for pretoken, count in pretokens.items():
-        update_pair_frequency(pair_frequencies, pretoken, count)
     pretokens_list = [(pretoken, count) for pretoken, count in pretokens.items()]
+    for index, (pretoken, count) in enumerate(pretokens_list):
+        update_pair_frequency(pair_frequencies, pairs_to_pretoken_indices, pretoken, count, index)
+
     progress = tqdm.tqdm(total=vocabulary_size - len(vocabulary), desc="BPE merges")
     while len(vocabulary) < vocabulary_size:
         progress.update(1)
@@ -180,7 +188,7 @@ def run_bpe(input_path: str, vocabulary_size: int, special_tokens: list[str]) ->
         if candidate is None:
             break
         merges.append(candidate)
-        apply_merge(vocabulary, pretokens_list, pair_frequencies, merges[-1])
+        apply_merge(vocabulary, pretokens_list, pairs_to_pretoken_indices, pair_frequencies, candidate)
 
     return vocabulary, merges
 
@@ -188,6 +196,7 @@ def run_bpe(input_path: str, vocabulary_size: int, special_tokens: list[str]) ->
 def apply_merge(
     vocabulary: TVocabulary,
     pretokens: TPretokenCountsList,
+    pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]],
     pair_frequencies: dict[tuple[bytes, bytes], int],
     candidate_pair: tuple[bytes, bytes],
 ) -> None:
@@ -196,16 +205,24 @@ def apply_merge(
     new_token_id = max_token_id + 1
     vocabulary[new_token_id] = candidate_pair[0] + candidate_pair[1]
 
-    for index in range(len(pretokens)):
+    for index in list(pairs_to_pretoken_indices.get(candidate_pair, [])):
         pretoken, count = pretokens[index]
         for i in range(len(pretoken) - 1):
             if (pretoken[i], pretoken[i + 1]) == candidate_pair:
-                new_pretoken = update_pretoken_with_merge(pretoken, count, candidate_pair, pair_frequencies)
+                new_pretoken = update_pair_frequencies_with_merge(pretoken, count, candidate_pair, pair_frequencies)
+                for pair in zip(pretoken[:-1], pretoken[1:]):
+                    pairs_to_pretoken_indices[pair].discard(index)
+                for pair in zip(new_pretoken[:-1], new_pretoken[1:]):
+                    pairs_to_pretoken_indices[pair].add(index)
+
                 pretokens[index] = (new_pretoken, count)
                 break
 
 
 if __name__ == "__main__":
+    pr = cProfile.Profile()
+    pr.enable()
+
     print("starting")
     start_time = time.perf_counter()
     vocabulary, merges = run_bpe(
@@ -217,3 +234,10 @@ if __name__ == "__main__":
 
     with open(sys.argv[1] + "merges.pkl", "wb") as f:
         pickle.dump(merges, f)
+    pr.disable()
+    s = io.StringIO()
+    sortby = SortKey.CUMULATIVE
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats()
+    print(s.getvalue())
+
