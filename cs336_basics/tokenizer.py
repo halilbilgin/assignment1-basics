@@ -3,6 +3,7 @@
 import concurrent.futures
 
 from concurrent.futures import Future, ProcessPoolExecutor
+from dataclasses import dataclass
 import json
 import os
 import pickle
@@ -14,8 +15,9 @@ from typing import BinaryIO
 import tqdm
 
 TPretokenCounts = dict[tuple[bytes, ...], int]
+TPretokenCountsList = list[tuple[tuple[bytes, ...], int]]
 TVocabulary = dict[int, bytes]
-TBPEMerge = list[tuple[bytes,bytes]]
+TBPEMerge = list[tuple[bytes, bytes]]
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
@@ -24,11 +26,10 @@ def pretokenize(text: str, special_tokens: list[str]) -> TPretokenCounts:
     segments = re.split("|".join(re.escape(token) for token in special_tokens), text)
     result: TPretokenCounts = {}
     for segment in segments:
-
         for match_ in re.finditer(PAT, segment):
             word = match_.group(0)
             encoded_word = tuple([c.to_bytes() for c in word.encode()])
-    
+
             result[encoded_word] = result.get(encoded_word, 0) + 1
 
     return result
@@ -77,27 +78,26 @@ def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special
     return sorted(set(chunk_boundaries))
 
 
-
 def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens: list[str]):
     result: TPretokenCounts = {}
     with ProcessPoolExecutor(max_workers=num_processes) as pool:
         futures: list[Future[TPretokenCounts]] = []
-        boundaries = find_chunk_boundaries(f, num_processes*1000, b"<|endoftext|>")
+        boundaries = find_chunk_boundaries(f, num_processes * 1000, b"<|endoftext|>")
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
-        for i, (start, end) in tqdm.tqdm(enumerate(zip(boundaries[:-1], boundaries[1:])), total=len(boundaries)-1):
+        for i, (start, end) in tqdm.tqdm(enumerate(zip(boundaries[:-1], boundaries[1:])), total=len(boundaries) - 1):
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="strict")
             # Run pre-tokenization on your chunk and store the counts for each pre-token
             futures.append(pool.submit(pretokenize, text=chunk, special_tokens=special_tokens))
 
-            if i % num_processes*3 > 0:
+            if i % num_processes * 3 > 0:
                 continue
             for future in concurrent.futures.as_completed(futures):
                 for pretoken, count in future.result().items():
                     result[pretoken] = result.get(pretoken, 0) + count
             futures.clear()
-    
+
     for future in concurrent.futures.as_completed(futures):
         for pretoken, count in future.result().items():
             result[pretoken] = result.get(pretoken, 0) + count
@@ -107,11 +107,15 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
 
 
 def update_pair_frequency(pair_frequencies: dict[tuple[bytes, bytes], int], pretoken: tuple[bytes, ...], count: int):
-    for i in range(len(pretoken)-1):
-        pair_frequencies[(pretoken[i], pretoken[i+1])] = pair_frequencies.get((pretoken[i], pretoken[i+1]), 0) + count
+    for i in range(len(pretoken) - 1):
+        pair_frequencies[(pretoken[i], pretoken[i + 1])] = (
+            pair_frequencies.get((pretoken[i], pretoken[i + 1]), 0) + count
+        )
 
 
-def update_pretoken_with_merge(pretoken: tuple[bytes, ...], count: int, pair: tuple[bytes, bytes], pair_frequencies: dict[tuple[bytes, bytes], int]):
+def update_pretoken_with_merge(
+    pretoken: tuple[bytes, ...], count: int, pair: tuple[bytes, bytes], pair_frequencies: dict[tuple[bytes, bytes], int]
+):
     new_pretoken: list[bytes] = []
     i = 0
     # candidate: t h
@@ -119,89 +123,97 @@ def update_pretoken_with_merge(pretoken: tuple[bytes, ...], count: int, pair: tu
     # new_pretoken k,a,th,th,e,r,i,n,a,th,a
 
     while i < len(pretoken):
-        if i < len(pretoken)-1 and (pretoken[i], pretoken[i+1]) == pair:
-            merge = pair[0]+pair[1]
+        if i < len(pretoken) - 1 and (pretoken[i], pretoken[i + 1]) == pair:
+            merge = pair[0] + pair[1]
             pair_frequencies[pair] -= count
             if len(new_pretoken):
                 pair_frequencies[(new_pretoken[-1], merge)] = pair_frequencies.get((new_pretoken[-1], merge), 0) + count
-                pair_frequencies[(new_pretoken[-1], pair[0])] = pair_frequencies.get((new_pretoken[-1], pair[0]), 0) - count
-            if i+2 < len(pretoken):
-                pair_frequencies[(merge, pretoken[i+2])] = pair_frequencies.get((merge, pretoken[i+2]), 0) + count
-                pair_frequencies[(pair[1], pretoken[i+2])] = pair_frequencies.get((pair[1], pretoken[i+2]), 0) - count
- 
+                pair_frequencies[(new_pretoken[-1], pair[0])] = (
+                    pair_frequencies.get((new_pretoken[-1], pair[0]), 0) - count
+                )
+            if i + 2 < len(pretoken):
+                pair_frequencies[(merge, pretoken[i + 2])] = pair_frequencies.get((merge, pretoken[i + 2]), 0) + count
+                pair_frequencies[(pair[1], pretoken[i + 2])] = (
+                    pair_frequencies.get((pair[1], pretoken[i + 2]), 0) - count
+                )
+
             new_pretoken.append(merge)
-            i+=2
+            i += 2
         else:
             new_pretoken.append(pretoken[i])
-            i+=1
+            i += 1
 
     return tuple(new_pretoken)
 
 
-
 def initialize_vocabulary(special_tokens: list[str]) -> TVocabulary:
-    vocab = {
-        i: i.to_bytes() for i in range(256) 
-    }
+    vocab = {i: i.to_bytes() for i in range(256)}
     for i in range(len(special_tokens)):
-        vocab[i+256] = special_tokens[i].encode("utf-8")
+        vocab[i + 256] = special_tokens[i].encode("utf-8")
 
     return vocab
+
 
 def get_merge_candidate(pair_frequencies: dict[tuple[bytes, bytes], int]) -> tuple[bytes, bytes] | None:
     max_pair_frequency = max(pair_frequencies.values())
     if max_pair_frequency == 0:
         return None
-    # return the pair with max pair frequency that is lexicographically the greatest 
-    return sorted([
-        pair for pair, frequency in pair_frequencies.items() if frequency == max_pair_frequency 
-    ])[-1]
+    # return the pair with max pair frequency that is lexicographically the greatest
+    return sorted([pair for pair, frequency in pair_frequencies.items() if frequency == max_pair_frequency])[-1]
 
 
 def run_bpe(input_path: str, vocabulary_size: int, special_tokens: list[str]) -> tuple[TVocabulary, TBPEMerge]:
-    pair_frequencies: dict[tuple[bytes, bytes], int] = {} 
+    pair_frequencies: dict[tuple[bytes, bytes], int] = {}
     vocabulary = initialize_vocabulary(special_tokens)
     with open(input_path, "rb") as f:
         pretokens = pretokenize_corpus_parallel(f, num_processes=7, special_tokens=special_tokens)
-    
+
     merges: list[tuple[bytes, bytes]] = []
 
     for pretoken, count in pretokens.items():
         update_pair_frequency(pair_frequencies, pretoken, count)
+    pretokens_list = [(pretoken, count) for pretoken, count in pretokens.items()]
+    progress = tqdm.tqdm(total=vocabulary_size - len(vocabulary), desc="BPE merges")
     while len(vocabulary) < vocabulary_size:
+        progress.update(1)
         candidate = get_merge_candidate(pair_frequencies)
         if candidate is None:
             break
         merges.append(candidate)
-        apply_merge(vocabulary, pretokens, pair_frequencies, merges[-1])
+        apply_merge(vocabulary, pretokens_list, pair_frequencies, merges[-1])
 
     return vocabulary, merges
-    
-def apply_merge(vocabulary: TVocabulary, pretokens: TPretokenCounts, pair_frequencies: dict[tuple[bytes, bytes], int],
-                candidate_pair: tuple[bytes, bytes]) -> None:
-    max_token_id = max(list(vocabulary.keys()))
-    
-    pretokens_to_be_updated = []
-    new_token_id = max_token_id + 1
-    vocabulary[new_token_id] = candidate_pair[0]+candidate_pair[1]
-    for pretoken, count in pretokens.items():
-        for i in range(len(pretoken)-1):
-            if (pretoken[i], pretoken[i+1]) == candidate_pair:
-                new_pretoken = update_pretoken_with_merge(pretoken, count, candidate_pair, pair_frequencies)
-                pretokens_to_be_updated.append((pretoken, new_pretoken))
-                break
 
-    for current_pretoken, new_pretoken in pretokens_to_be_updated:
-        pretokens[new_pretoken] = pretokens.pop(current_pretoken)
+
+def apply_merge(
+    vocabulary: TVocabulary,
+    pretokens: TPretokenCountsList,
+    pair_frequencies: dict[tuple[bytes, bytes], int],
+    candidate_pair: tuple[bytes, bytes],
+) -> None:
+    max_token_id = max(list(vocabulary.keys()))
+
+    new_token_id = max_token_id + 1
+    vocabulary[new_token_id] = candidate_pair[0] + candidate_pair[1]
+
+    for index in range(len(pretokens)):
+        pretoken, count = pretokens[index]
+        for i in range(len(pretoken) - 1):
+            if (pretoken[i], pretoken[i + 1]) == candidate_pair:
+                new_pretoken = update_pretoken_with_merge(pretoken, count, candidate_pair, pair_frequencies)
+                pretokens[index] = (new_pretoken, count)
+                break
 
 
 if __name__ == "__main__":
     print("starting")
     start_time = time.perf_counter()
-    vocabulary, merges = run_bpe(input_path=sys.argv[1], vocabulary_size=int(sys.argv[2]), special_tokens=["<|endoftext|>"])
-    print(f"Took {time.perf_counter()-start_time}s.")
-    with open(sys.argv[1]+"vocabulary.pkl", "wb") as f:
+    vocabulary, merges = run_bpe(
+        input_path=sys.argv[1], vocabulary_size=int(sys.argv[2]), special_tokens=["<|endoftext|>"]
+    )
+    print(f"Took {time.perf_counter() - start_time}s.")
+    with open(sys.argv[1] + "vocabulary.pkl", "wb") as f:
         pickle.dump(vocabulary, f)
-    
-    with open(sys.argv[1]+"merges.pkl", "wb") as f:
+
+    with open(sys.argv[1] + "merges.pkl", "wb") as f:
         pickle.dump(merges, f)
