@@ -1,17 +1,11 @@
 """Implement a BPE based subword tokenizer."""
 
-import cProfile
 from collections import defaultdict
 import concurrent.futures
 
 from concurrent.futures import Future, ProcessPoolExecutor
-from dataclasses import dataclass
-import io
-import json
 import os
 import pickle
-from pstats import SortKey
-import pstats
 import sys
 import time
 import regex as re
@@ -98,10 +92,10 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
 
             if i % num_processes * 4 > 0:
                 continue
-            for future in concurrent.futures.as_completed(futures[:-num_processes*2]):
+            for future in concurrent.futures.as_completed(futures[: -num_processes * 2]):
                 for pretoken, count in future.result().items():
                     result[pretoken] = result.get(pretoken, 0) + count
-            futures = futures[-num_processes*2:]
+            futures = futures[-num_processes * 2 :]
 
     for future in concurrent.futures.as_completed(futures):
         for pretoken, count in future.result().items():
@@ -111,7 +105,13 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
     return result
 
 
-def update_pair_frequency(pair_frequencies: dict[tuple[bytes, bytes], int], pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]], pretoken: tuple[bytes, ...], count: int, index: int):
+def update_pair_frequency(
+    pair_frequencies: dict[tuple[bytes, bytes], int],
+    pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]],
+    pretoken: tuple[bytes, ...],
+    count: int,
+    index: int,
+):
     for i in range(len(pretoken) - 1):
         pair_frequencies[(pretoken[i], pretoken[i + 1])] = (
             pair_frequencies.get((pretoken[i], pretoken[i + 1]), 0) + count
@@ -219,8 +219,6 @@ def apply_merge(
 
 
 if __name__ == "__main__":
-    # pr = cProfile.Profile()
-    # pr.enable()
 
     print("starting")
     start_time = time.perf_counter()
@@ -233,10 +231,4 @@ if __name__ == "__main__":
 
     with open(sys.argv[1] + "merges.pkl", "wb") as f:
         pickle.dump(merges, f)
-    # pr.disable()
-    # s = io.StringIO()
-    # sortby = SortKey.CUMULATIVE
-    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    # ps.print_stats()
-    # print(s.getvalue())
 
