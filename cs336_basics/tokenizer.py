@@ -96,12 +96,12 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
             # Run pre-tokenization on your chunk and store the counts for each pre-token
             futures.append(pool.submit(pretokenize, text=chunk, special_tokens=special_tokens))
 
-            if i % num_processes * 3 > 0:
+            if i % num_processes * 4 > 0:
                 continue
-            for future in concurrent.futures.as_completed(futures):
+            for future in concurrent.futures.as_completed(futures[:-num_processes*2]):
                 for pretoken, count in future.result().items():
                     result[pretoken] = result.get(pretoken, 0) + count
-            futures.clear()
+            futures = futures[-num_processes*2:]
 
     for future in concurrent.futures.as_completed(futures):
         for pretoken, count in future.result().items():
@@ -214,14 +214,13 @@ def apply_merge(
                     pairs_to_pretoken_indices[pair].discard(index)
                 for pair in zip(new_pretoken[:-1], new_pretoken[1:]):
                     pairs_to_pretoken_indices[pair].add(index)
-
                 pretokens[index] = (new_pretoken, count)
                 break
 
 
 if __name__ == "__main__":
-    pr = cProfile.Profile()
-    pr.enable()
+    # pr = cProfile.Profile()
+    # pr.enable()
 
     print("starting")
     start_time = time.perf_counter()
@@ -234,10 +233,10 @@ if __name__ == "__main__":
 
     with open(sys.argv[1] + "merges.pkl", "wb") as f:
         pickle.dump(merges, f)
-    pr.disable()
-    s = io.StringIO()
-    sortby = SortKey.CUMULATIVE
-    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    ps.print_stats()
-    print(s.getvalue())
+    # pr.disable()
+    # s = io.StringIO()
+    # sortby = SortKey.CUMULATIVE
+    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    # ps.print_stats()
+    # print(s.getvalue())
 

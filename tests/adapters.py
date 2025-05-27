@@ -592,15 +592,15 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    pr = cProfile.Profile()
-    pr.enable()
+    # pr = cProfile.Profile()
+    # pr.enable()
 
     vocab, merges = run_bpe(input_path=str(input_path), vocabulary_size=vocab_size, special_tokens=special_tokens)
-    pr.disable()
-    s = io.StringIO()
-    sortby = SortKey.CUMULATIVE
-    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    ps.print_stats()
-    print(s.getvalue())
+    # pr.disable()
+    # s = io.StringIO()
+    # sortby = SortKey.CUMULATIVE
+    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    # ps.print_stats()
+    # print(s.getvalue())
 
     return vocab, merges
