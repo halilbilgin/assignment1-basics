@@ -13,8 +13,8 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 
-from cs336_basics.tokenizer import run_bpe
-
+from cs336_basics.train_tokenizer import run_bpe
+from cs336_basics.tokenizer import Tokenizer
 def run_linear(
     d_in: int,
     d_out: int,
@@ -546,7 +546,7 @@ def get_tokenizer(
     vocab: dict[int, bytes],
     merges: list[tuple[bytes, bytes]],
     special_tokens: list[str] | None = None,
-) -> Any:
+) -> Tokenizer:
     """Given a vocabulary, a list of merges, and a list of special tokens,
     return a BPE tokenizer that uses the provided vocab, merges, and special tokens.
 
@@ -562,7 +562,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    return Tokenizer(merges=merges, special_tokens=special_tokens or [], vocabulary=vocab)
 
 
 def run_train_bpe(
