@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from torch import nn
 import cProfile
 import io
 import os
@@ -15,6 +15,7 @@ from torch import Tensor
 
 from cs336_basics.train_tokenizer import run_bpe
 from cs336_basics.tokenizer import Tokenizer
+from cs336_basics.model import Embedding, Linear
 def run_linear(
     d_in: int,
     d_out: int,
@@ -34,7 +35,9 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    linear = Linear(d_in, d_out)
+    linear.load_state_dict({"W": weights})
+    return linear(in_features)
 
 
 def run_embedding(
@@ -56,7 +59,9 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    embedding = Embedding(num_embeddings=vocab_size, embedding_dim=d_model, dtype=torch.float)
+    embedding.load_state_dict({"W": weights})
+    return embedding(token_ids)
 
 
 def run_swiglu(
