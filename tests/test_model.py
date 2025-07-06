@@ -2,7 +2,7 @@ from einops import rearrange
 import numpy
 import torch
 import torch.nn.functional as F
-
+import pytest
 from .adapters import (
     run_multihead_self_attention_with_rope,
     run_rope,
@@ -106,7 +106,6 @@ def test_multihead_self_attention(numpy_snapshot, in_embeddings, d_model, n_head
     )
     # numpy.testing.assert_allclose(actual_output.detach().numpy(), expected_output.detach().numpy(), atol=1e-6)
     numpy_snapshot.assert_match(actual_output, atol=1e-6)
-
 
 def test_multihead_self_attention_with_rope(
     numpy_snapshot, in_embeddings, d_model, n_heads, ts_state_dict, n_keys, theta, pos_ids

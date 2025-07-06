@@ -19,6 +19,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "jax>=0.6.1",
+    "matplotlib>=3.10.3",
+    "pytest-plt>=1.1.1",
 ]
 
 

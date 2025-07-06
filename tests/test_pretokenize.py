@@ -1,6 +1,6 @@
 import tempfile
 from unittest.mock import patch
-from cs336_basics.tokenizer import pretokenize_corpus_parallel
+from cs336_basics.tokenizer_utils import pretokenize_corpus_parallel
 
 
 def _convert_to_str(s: tuple[bytes, ...]) -> str:
