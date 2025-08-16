@@ -7,6 +7,7 @@ import time
 
 import tqdm
 from .tokenizer_utils import pretokenize_corpus_parallel, TVocabulary, TBPEMerge, initialize_pair_frequencies, apply_merge
+from .tokenizer import Tokenizer
 
 def update_pair_frequency(
     pair_frequencies: dict[tuple[bytes, bytes], int],
@@ -67,12 +68,11 @@ def run_bpe(input_path: str, vocabulary_size: int, special_tokens: list[str]) ->
 
     return vocabulary, merges
 
-if __name__ == "__main__":
-
+def train_tokenizer(input_path: str, output_path: str, vocabulary_size: int, special_tokens: list[str]) -> Tokenizer:
     print("starting")
     start_time = time.perf_counter()
     vocabulary, merges = run_bpe(
-        input_path=sys.argv[1], vocabulary_size=int(sys.argv[2]), special_tokens=["<|endoftext|>"]
+        input_path=sys.argv[1], vocabulary_size=int(sys.argv[2]), special_tokens=special_tokens
     )
     print(f"Took {time.perf_counter() - start_time}s.")
     with open(sys.argv[1] + "vocabulary.pkl", "wb") as f:
@@ -81,3 +81,10 @@ if __name__ == "__main__":
     with open(sys.argv[1] + "merges.pkl", "wb") as f:
         pickle.dump(merges, f)
 
+    return Tokenizer(vocabulary=vocabulary, merges=merges, special_tokens=special_tokens)
+
+if __name__ == "__main__":
+    start_time = time.perf_counter()
+
+    train_tokenizer(input_path=sys.argv[1], output_path=sys.argv[1], vocabulary_size=int(sys.argv[2]), special_tokens=["<|endoftext|>"])
+    print(f"Took {time.perf_counter() - start_time}s.")
