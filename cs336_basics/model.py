@@ -91,17 +91,17 @@ class FFN(nn.Module):
 
         self.W1 = nn.Parameter(
             nn.init.trunc_normal_(
-                torch.zeros((self.d_ff, self.d_model)).to(device=device), mean=0, std=std, a=-3 * std, b=3 * std
+            torch.zeros((self.d_ff, self.d_model), device=device), mean=0, std=std, a=-3 * std, b=3 * std
             )
         )
         self.W2 = nn.Parameter(
             nn.init.trunc_normal_(
-                torch.zeros((self.d_model, self.d_ff)).to(device=device), mean=0, std=std, a=-3 * std, b=3 * std
+            torch.zeros((self.d_model, self.d_ff), device=device), mean=0, std=std, a=-3 * std, b=3 * std
             )
         )
         self.W3 = nn.Parameter(
             nn.init.trunc_normal_(
-                torch.zeros((self.d_ff, self.d_model)).to(device=device), mean=0, std=std, a=-3 * std, b=3 * std
+            torch.zeros((self.d_ff, self.d_model), device=device), mean=0, std=std, a=-3 * std, b=3 * std
             )
         )
 
@@ -278,7 +278,7 @@ class Transformer(nn.Module):
         self.device = device
 
         self.d_ff = d_ff
-        self.feed_forward = FFN(self.d_model, self.d_ff)
+        self.feed_forward = FFN(self.d_model, self.d_ff, device=device)
 
     def forward(self, x: Float[Tensor, "... seq_len d_model"]) -> Float[Tensor, "... seq_len d_model"]:
         token_positions = (
