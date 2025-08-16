@@ -72,13 +72,13 @@ def train_tokenizer(input_path: str, output_path: str, vocabulary_size: int, spe
     print("starting")
     start_time = time.perf_counter()
     vocabulary, merges = run_bpe(
-        input_path=sys.argv[1], vocabulary_size=int(sys.argv[2]), special_tokens=special_tokens
+        input_path=input_path, vocabulary_size=int(vocabulary_size), special_tokens=special_tokens
     )
     print(f"Took {time.perf_counter() - start_time}s.")
-    with open(sys.argv[1] + "vocabulary.pkl", "wb") as f:
+    with open(output_path + "vocabulary.pkl", "wb") as f:
         pickle.dump(vocabulary, f)
 
-    with open(sys.argv[1] + "merges.pkl", "wb") as f:
+    with open(output_path + "merges.pkl", "wb") as f:
         pickle.dump(merges, f)
 
     return Tokenizer(vocabulary=vocabulary, merges=merges, special_tokens=special_tokens)

@@ -212,6 +212,7 @@ class MultiHeadSelfAttention(nn.Module):
         K = torch.einsum("hkd, ...sd -> ...hsk", self.k_proj_weight.reshape(self.num_heads, self.d_k, self.d_model), x)
 
         if self.positional_embedding_layer is not None and token_positions is not None:
+            token_positions = torch.unsqueeze(token_positions, -2)
             Q = self.positional_embedding_layer(Q, token_positions=token_positions)
             K = self.positional_embedding_layer(K, token_positions=token_positions)
         elif any([self.positional_embedding_layer is not None, token_positions is not None]):
@@ -279,8 +280,7 @@ class TransformerLM(nn.Module):
     def forward(self, x: Float[Tensor, "... seq_len d_model"]):
         result = self.token_embedding_layer(x)
         
-        for transformer_block in self.transformer_blocks:
-            
+        for transformer_block in self.transformer_blocks:            
             result = transformer_block(result)
-        
+
         return self.final_linear(self.rms_norm_final(result))

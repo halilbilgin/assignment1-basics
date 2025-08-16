@@ -1,6 +1,6 @@
 from collections import defaultdict
 from copy import deepcopy
-from typing import Iterator
+from typing import Iterable, Iterator
 
 from tqdm import tqdm
 from .tokenizer_utils import pretokenize, initialize_pair_frequencies, apply_merge, PAT
@@ -78,7 +78,7 @@ class Tokenizer:
 
         return self._encode(pretoken_conversion, text)
 
-    def encode_iterable(self, iterable: list[str]) -> Iterator[int]:
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         accumulated_string = ""
         for item in iterable:
             accumulated_string += item

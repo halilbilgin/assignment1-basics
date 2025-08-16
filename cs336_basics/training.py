@@ -1,10 +1,16 @@
 import os
 import pickle
+import tempfile
 import typing
+import click
 import torch
 from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.train_tokenizer import run_bpe, train_tokenizer
-from cs336_basics.optimizers import AdamW
+from cs336_basics.optimizers import AdamW, CrossEntropy, learning_rate_scheduler
+from cs336_basics.model import TransformerLM
+from cs336_basics.data_loader import load_dataset, get_batch
+import numpy as np
+
 
 def _save_checkpoint(f: typing.BinaryIO | typing.IO[bytes], data: dict) -> None:
     f.write(pickle.dumps(data))
@@ -44,7 +50,24 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
     optimizer.load_state_dict(output_dictionary["optimizer_state"])
     return output_dictionary["iteration"]
 
-
+@click.command()
+@click.option("--input-path", type=str, required=True, help="Path to input text file.")
+@click.option("--vocab-size", type=int, required=True, help="Vocabulary size for tokenizer.")
+@click.option("--context-length", type=int, required=True, help="Context length for transformer.")
+@click.option("--d-model", type=int, required=True, help="Transformer model dimension.")
+@click.option("--d-ff", type=int, required=True, help="Feedforward dimension.")
+@click.option("--rope-theta", type=float, default=10000.0, help="RoPE theta value.")
+@click.option("--num-layers", type=int, required=True, help="Number of transformer layers.")
+@click.option("--num-heads", type=int, required=True, help="Number of attention heads.")
+@click.option("--min-learning-rate", type=float, required=True, help="Minimum learning rate.")
+@click.option("--max-learning-rate", type=float, required=True, help="Maximum learning rate.")
+@click.option("--warmup-iters", type=int, required=True, help="Number of warmup iterations.")
+@click.option("--cosine-cycle-iters", type=int, required=True, help="Cosine cycle iterations.")
+@click.option("--batch-size", type=int, required=True, help="Batch size for training.")
+@click.option("--adamw-betas", type=(float, float), default=(0.9, 0.999), help="AdamW betas.")
+@click.option("--adamw-weight-decay", type=float, default=0.01, help="AdamW weight decay.")
+@click.option("--output-path", type=str, required=True, help="Output directory for checkpoints and tokenizer.")
+@click.option("--device", type=str, default="cpu", help="Device to use (cpu or cuda).")
 def train(
     input_path: str,
     vocab_size: int,
@@ -58,21 +81,67 @@ def train(
     max_learning_rate: int,
     warmup_iters: int,
     cosine_cycle_iters: int,
+    batch_size: int,
     adamw_betas: tuple[float, float],
     adamw_weight_decay: float,
-    : float,
-
     output_path: str,
+    device: str,
 ):
     tokenizer_path = os.path.join(output_path, "tokenizer")
-    os.makedirs(tokenizer_path)
-    
+    os.makedirs(tokenizer_path, exist_ok=True)
+    checkpoint_path = os.path.join(output_path, "checkpoints")
+    os.makedirs(checkpoint_path, exist_ok=True)
+
     tokenizer = train_tokenizer(
         input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
     )
+    _, tokenized_data_file = tempfile.mkstemp()
+    with open(tokenized_data_file, "wb+") as f_write, open(input_path) as f_read:
+        tokens = tokenizer.encode(f_read.read())
+        np.save(f_write, np.asarray(tokens))
 
-    optimizer = AdamW(betas=)
+    dataset = load_dataset(tokenized_data_file)
+
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_model=d_model,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+    )
+    loss_function = CrossEntropy()
+    optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
+
+    for iteration in range(warmup_iters + cosine_cycle_iters):
+        # Update learning rate of the optimizer using the scheduler:
+        lr = learning_rate_scheduler(
+            it=iteration,
+            max_learning_rate=max_learning_rate,
+            cosine_cycle_iters=cosine_cycle_iters,
+            warmup_iters=warmup_iters,
+            min_learning_rate=min_learning_rate,
+        )
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
+        
+        batch = get_batch(dataset, batch_size, context_length, device)
+        optimizer.zero_grad()
+        loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
+        loss /= context_length
+
+        if iteration % 10 == 0:
+            print(f"Loss at iteration {iteration} is {loss}")
+
+        loss.backward()
+        optimizer.step()
+
+        if iteration % 1000 == 0:
+            save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
+
+    save_checkpoint(model, optimizer, warmup_iters + cosine_cycle_iters, checkpoint_path)
     
 
 if __name__ == "__main__":
-    pass
+    train()
