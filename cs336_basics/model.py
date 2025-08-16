@@ -40,7 +40,7 @@ class Embedding(nn.Module):
         self.embedding_dim = embedding_dim
         self.W = nn.Parameter(
             nn.init.trunc_normal_(torch.zeros((num_embeddings, embedding_dim)), mean=0, std=1, a=-3, b=3).to(
-                device, dtype=dtype
+                device=device, dtype=dtype
             ),
         )
         self.device, self.dtype = device, dtype
@@ -61,7 +61,7 @@ class RMSNorm(nn.Module):
         self.d_model = d_model
         self.eps = eps
         self.device, self.dtype = device, dtype
-        self.g = nn.Parameter(torch.ones(d_model))
+        self.g = nn.Parameter(torch.ones(d_model).to(device=device))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """"""
@@ -82,7 +82,7 @@ class SiLU(nn.Module):
 
 
 class FFN(nn.Module):
-    def __init__(self, d_model: int, d_ff: int | None = None) -> None:
+    def __init__(self, d_model: int, d_ff: int | None = None, device: torch.device | None = None) -> None:
         super().__init__()
         self.d_model = d_model
         self.d_ff = d_ff if d_ff is not None else round(8 / 3 * d_model)
@@ -90,13 +90,13 @@ class FFN(nn.Module):
         std = math.sqrt(2 / (self.d_model + self.d_ff))
 
         self.W1 = nn.Parameter(
-            nn.init.trunc_normal_(torch.zeros((self.d_ff, self.d_model)), mean=0, std=std, a=-3 * std, b=3 * std)
+            nn.init.trunc_normal_(torch.zeros((self.d_ff, self.d_model)).to(device=device), mean=0, std=std, a=-3 * std, b=3 * std)
         )
         self.W2 = nn.Parameter(
-            nn.init.trunc_normal_(torch.zeros((self.d_model, self.d_ff)), mean=0, std=std, a=-3 * std, b=3 * std)
+            nn.init.trunc_normal_(torch.zeros((self.d_model, self.d_ff)).to(device=device), mean=0, std=std, a=-3 * std, b=3 * std)
         )
         self.W3 = nn.Parameter(
-            nn.init.trunc_normal_(torch.zeros((self.d_ff, self.d_model)), mean=0, std=std, a=-3 * std, b=3 * std)
+            nn.init.trunc_normal_(torch.zeros((self.d_ff, self.d_model)).to(device=device), mean=0, std=std, a=-3 * std, b=3 * std)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -115,13 +115,13 @@ class ROPE(nn.Module):
         super().__init__()
         self.theta, self.d_k, self.max_seq_len, self.device = theta, d_k, max_seq_len, device
 
-        all_token_positions = torch.arange(start=0, end=self.max_seq_len, step=1).unsqueeze(1)  # (max_seq_len, 1)
-        all_ks = torch.arange(start=0, end=d_k // 2, step=1).unsqueeze(0)  # (1, d/2)
+        all_token_positions = torch.arange(start=0, end=self.max_seq_len, step=1).unsqueeze(1).to(device=device)  # (max_seq_len, 1)
+        all_ks = torch.arange(start=0, end=d_k // 2, step=1).unsqueeze(0).to(device=device)  # (1, d/2)
 
         theta_ik = all_token_positions / self.theta ** (2 * all_ks / d_k)
-        cos_results = torch.cos(theta_ik)  # (max_seq_len, d/2)
+        cos_results = torch.cos(theta_ik).to(device=device)  # (max_seq_len, d/2)
 
-        sin_results = torch.sin(theta_ik)  # (max_seq_len, d/2)
+        sin_results = torch.sin(theta_ik).to(device=device)  # (max_seq_len, d/2)
 
         self.sin_results: torch.Tensor
         self.cos_results: torch.Tensor
@@ -188,7 +188,7 @@ class ScaledDotProductAttention(nn.Module):
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, positional_embedding_layer: nn.Module | None = None) -> None:
+    def __init__(self, d_model: int, num_heads: int, positional_embedding_layer: nn.Module | None = None, device: torch.device | None = None) -> None:
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
@@ -196,10 +196,18 @@ class MultiHeadSelfAttention(nn.Module):
         self.d_v = self.d_model // num_heads
         self.positional_embedding_layer = positional_embedding_layer
 
-        self.q_proj_weight = nn.Parameter(torch.nn.init.xavier_normal_(torch.zeros(num_heads * self.d_k, self.d_model)))
-        self.k_proj_weight = nn.Parameter(torch.nn.init.xavier_normal_(torch.zeros(num_heads * self.d_k, self.d_model)))
-        self.v_proj_weight = nn.Parameter(torch.nn.init.xavier_normal_(torch.zeros(num_heads * self.d_v, self.d_model)))
-        self.o_proj_weight = nn.Parameter(torch.nn.init.xavier_normal_(torch.zeros(self.d_model, num_heads * self.d_v)))
+        self.q_proj_weight = nn.Parameter(
+            torch.nn.init.xavier_normal_(torch.zeros(num_heads * self.d_k, self.d_model, device=device))
+        )
+        self.k_proj_weight = nn.Parameter(
+            torch.nn.init.xavier_normal_(torch.zeros(num_heads * self.d_k, self.d_model, device=device))
+        )
+        self.v_proj_weight = nn.Parameter(
+            torch.nn.init.xavier_normal_(torch.zeros(num_heads * self.d_v, self.d_model, device=device))
+        )
+        self.o_proj_weight = nn.Parameter(
+            torch.nn.init.xavier_normal_(torch.zeros(self.d_model, num_heads * self.d_v, device=device))
+        )
         self.attention_layer = ScaledDotProductAttention(self.d_k)
 
     def forward(
@@ -251,14 +259,15 @@ class Transformer(nn.Module):
         self.rms_norm_second = RMSNorm(d_model, device=device)
         self.rope = ROPE(rope_theta, self.d_model // num_heads, max_seq_len=max_seq_len, device=device)
         self.multi_head_self_attention = MultiHeadSelfAttention(
-            d_model, num_heads, positional_embedding_layer=self.rope
+            d_model, num_heads, positional_embedding_layer=self.rope, device=device
         )
+        self.device=device
 
         self.d_ff = d_ff
         self.feed_forward = FFN(self.d_model, self.d_ff)
 
     def forward(self, x: Float[Tensor, "... seq_len d_model"]) -> Float[Tensor, "... seq_len d_model"]:
-        token_positions = torch.range(0, x.shape[-2] - 1, dtype=torch.int).broadcast_to(*x.shape[:-1])
+        token_positions = torch.range(0, x.shape[-2] - 1, dtype=torch.int).broadcast_to(*x.shape[:-1]).to(device=self.device)
         first_layer = x + self.multi_head_self_attention(self.rms_norm_first(x), token_positions=token_positions)
 
         return first_layer + self.feed_forward(self.rms_norm_second(first_layer))
