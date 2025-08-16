@@ -235,52 +235,72 @@ class MultiHeadSelfAttention(nn.Module):
 
 
 class Transformer(nn.Module):
-
-    def __init__(self, d_model: int, num_heads: int, d_ff: int, rope_theta: float, max_seq_len: int):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+        max_seq_len: int,
+        device: torch.device | None = None,
+    ):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
-        self.rms_norm_first = RMSNorm(d_model)
-        self.rms_norm_second = RMSNorm(d_model)
-        self.rope = ROPE(rope_theta, self.d_model//num_heads, max_seq_len=max_seq_len)
-        self.multi_head_self_attention = MultiHeadSelfAttention(d_model, num_heads, positional_embedding_layer=self.rope)
-        
+        self.rms_norm_first = RMSNorm(d_model, device=device)
+        self.rms_norm_second = RMSNorm(d_model, device=device)
+        self.rope = ROPE(rope_theta, self.d_model // num_heads, max_seq_len=max_seq_len, device=device)
+        self.multi_head_self_attention = MultiHeadSelfAttention(
+            d_model, num_heads, positional_embedding_layer=self.rope
+        )
+
         self.d_ff = d_ff
         self.feed_forward = FFN(self.d_model, self.d_ff)
 
-    def forward(
-            self, x: Float[Tensor, "... seq_len d_model"]
-    ):
-        token_positions = torch.range(0, x.shape[-2]-1, dtype=torch.int).broadcast_to(*x.shape[:-1])
-        first_layer = x + self.multi_head_self_attention(self.rms_norm_first(x), token_positions = token_positions)
-        
+    def forward(self, x: Float[Tensor, "... seq_len d_model"]) -> Float[Tensor, "... seq_len d_model"]:
+        token_positions = torch.range(0, x.shape[-2] - 1, dtype=torch.int).broadcast_to(*x.shape[:-1])
+        first_layer = x + self.multi_head_self_attention(self.rms_norm_first(x), token_positions=token_positions)
+
         return first_layer + self.feed_forward(self.rms_norm_second(first_layer))
-    
 
 
 class TransformerLM(nn.Module):
-    def __init__(self, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, rope_theta: float):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        num_layers: int,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+        device: torch.device | None = None,
+    ):
         super().__init__()
         self.vocab_size = vocab_size
         self.context_length = context_length
         self.num_layers = num_layers
-        self.token_embedding_layer = Embedding(vocab_size, d_model, dtype=torch.float)
-        self.transformer_blocks = [Transformer(
-            d_model=d_model,
-            num_heads=num_heads,
-            d_ff=d_ff,
-            rope_theta=rope_theta,
-            max_seq_len=context_length
-        ) for _ in range(num_layers)]
-        self.rms_norm_final = RMSNorm(d_model)
-        self.final_linear = torch.nn.Linear(d_model, vocab_size, bias=False)
-        
+        self.token_embedding_layer = Embedding(vocab_size, d_model, dtype=torch.float, device=device)
+        self.transformer_blocks = [
+            Transformer(
+                d_model=d_model,
+                num_heads=num_heads,
+                d_ff=d_ff,
+                rope_theta=rope_theta,
+                max_seq_len=context_length,
+                device=device,
+            )
+            for _ in range(num_layers)
+        ]
+        self.rms_norm_final = RMSNorm(d_model, device=device)
+        self.final_linear = torch.nn.Linear(d_model, vocab_size, bias=False, device=device)
+
         self.softmax = SoftMax(dim=-1)
-    
-    def forward(self, x: Float[Tensor, "... seq_len d_model"]):
+
+    def forward(self, x: Float[Tensor, "... seq_len d_model"]) -> Float[Tensor, "... seq_len vocab_size"]:
         result = self.token_embedding_layer(x)
-        
-        for transformer_block in self.transformer_blocks:            
+
+        for transformer_block in self.transformer_blocks:
             result = transformer_block(result)
 
         return self.final_linear(self.rms_norm_final(result))

@@ -62,12 +62,13 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 @click.option("--min-learning-rate", type=float, required=True, help="Minimum learning rate.")
 @click.option("--max-learning-rate", type=float, required=True, help="Maximum learning rate.")
 @click.option("--warmup-iters", type=int, required=True, help="Number of warmup iterations.")
-@click.option("--cosine-cycle-iters", type=int, required=True, help="Cosine cycle iterations.")
+@click.option("--iters", type=int, required=True, help="Cosine cycle iterations.")
 @click.option("--batch-size", type=int, required=True, help="Batch size for training.")
 @click.option("--adamw-betas", type=(float, float), default=(0.9, 0.999), help="AdamW betas.")
 @click.option("--adamw-weight-decay", type=float, default=0.01, help="AdamW weight decay.")
 @click.option("--output-path", type=str, required=True, help="Output directory for checkpoints and tokenizer.")
 @click.option("--device", type=str, default="cpu", help="Device to use (cpu or cuda).")
+@click.option("--seed", type=int, default=42, help="Seed")
 def train(
     input_path: str,
     vocab_size: int,
@@ -80,13 +81,20 @@ def train(
     min_learning_rate: int,
     max_learning_rate: int,
     warmup_iters: int,
-    cosine_cycle_iters: int,
+    iters: int,
     batch_size: int,
     adamw_betas: tuple[float, float],
     adamw_weight_decay: float,
     output_path: str,
     device: str,
+    seed: int
 ):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    if warmup_iters >= iters:
+        raise ValueError("Iters must be greater than warmup iters.")
+
     tokenizer_path = os.path.join(output_path, "tokenizer")
     os.makedirs(tokenizer_path, exist_ok=True)
     checkpoint_path = os.path.join(output_path, "checkpoints")
@@ -110,16 +118,17 @@ def train(
         d_model=d_model,
         d_ff=d_ff,
         rope_theta=rope_theta,
+        device=torch.device(device)
     )
     loss_function = CrossEntropy()
     optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
 
-    for iteration in range(warmup_iters + cosine_cycle_iters):
+    for iteration in range(iters):
         # Update learning rate of the optimizer using the scheduler:
         lr = learning_rate_scheduler(
             it=iteration,
             max_learning_rate=max_learning_rate,
-            cosine_cycle_iters=cosine_cycle_iters,
+            cosine_cycle_iters=iters,
             warmup_iters=warmup_iters,
             min_learning_rate=min_learning_rate,
         )
@@ -140,7 +149,7 @@ def train(
         if iteration % 1000 == 0:
             save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
 
-    save_checkpoint(model, optimizer, warmup_iters + cosine_cycle_iters, checkpoint_path)
+    save_checkpoint(model, optimizer, iters, os.path.join(checkpoint_path, "final.ckp"))
     
 
 if __name__ == "__main__":
