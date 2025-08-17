@@ -138,7 +138,6 @@ def train(
         batch = get_batch(dataset, batch_size, context_length, device)
         optimizer.zero_grad()
         loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
-        loss /= context_length
 
         if iteration % 10 == 0:
             print(f"Loss at iteration {iteration} is {loss}")
