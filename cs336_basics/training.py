@@ -70,6 +70,7 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 @click.option("--output-path", type=str, required=True, help="Output directory for checkpoints and tokenizer.")
 @click.option("--device", type=str, default="cpu", help="Device to use (cpu or cuda).")
 @click.option("--seed", type=int, default=42, help="Seed")
+@click.option("--pretrained-tokenizer-path", type=str, default=None, help="pretrained tokenizer path if exists.")
 def train(
     input_path: str,
     vocab_size: int,
@@ -88,7 +89,8 @@ def train(
     adamw_weight_decay: float,
     output_path: str,
     device: str,
-    seed: int
+    seed: int,
+    pretrained_tokenizer_path: str | None
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -101,9 +103,14 @@ def train(
     checkpoint_path = os.path.join(output_path, "checkpoints")
     os.makedirs(checkpoint_path, exist_ok=True)
 
-    tokenizer = train_tokenizer(
-        input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
-    )
+    if pretrained_tokenizer_path:
+        with open(pretrained_tokenizer_path + "vocabulary.pkl", "rb") as vocabulary_pkl, open(pretrained_tokenizer_path + "merges.pkl", "rb") as merges_pkl:
+            tokenizer = Tokenizer(merges=pickle.load(merges_pkl), vocabulary=pickle.load(vocabulary_pkl), special_tokens=["<|endoftext|>"])
+    else:
+        tokenizer = train_tokenizer(
+            input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
+        )
+    
     _, tokenized_data_file = tempfile.mkstemp()
     with open(tokenized_data_file, "wb+") as f_write, open(input_path) as f_read:
         tokens = tokenizer.encode(f_read.read())
