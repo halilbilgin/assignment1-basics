@@ -38,7 +38,7 @@ class LLMInference:
             cdf = torch.cumsum(pmf, dim=-1)
             uniform_samples = torch.rand(cdf.shape[0]).reshape(-1, 1, 1)
             
-            generated_text += self.tokenizer.decode(torch.searchsorted(cdf, uniform_samples)[0].numpy()[0, 0])
+            generated_text += self.tokenizer.decode(torch.searchsorted(cdf, uniform_samples)[0].numpy()[0, 0].item())
 
             if generated_text[-1].endswith("<|endoftext|>"):
                 break

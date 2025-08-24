@@ -10,6 +10,7 @@ from cs336_basics.optimizers import AdamW, CrossEntropy, learning_rate_scheduler
 from cs336_basics.model import TransformerLM
 from cs336_basics.data_loader import load_dataset, get_batch
 import numpy as np
+import tqdm
 
 
 def _save_checkpoint(f: typing.BinaryIO | typing.IO[bytes], data: dict) -> None:
@@ -123,30 +124,31 @@ def train(
     loss_function = CrossEntropy()
     optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
 
-    for iteration in range(iters):
-        # Update learning rate of the optimizer using the scheduler:
-        lr = learning_rate_scheduler(
-            it=iteration,
-            max_learning_rate=max_learning_rate,
-            cosine_cycle_iters=iters,
-            warmup_iters=warmup_iters,
-            min_learning_rate=min_learning_rate,
-        )
-        for param_group in optimizer.param_groups:
-            param_group["lr"] = lr
-        
-        batch = get_batch(dataset, batch_size, context_length, device)
-        optimizer.zero_grad()
-        loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
+    with tqdm.tqdm(total=iters, unit=" iter", mininterval=1) as tepoch:
+        for iteration in range(iters):
+            tepoch.update(1)
+            # Update learning rate of the optimizer using the scheduler:
+            lr = learning_rate_scheduler(
+                it=iteration,
+                max_learning_rate=max_learning_rate,
+                cosine_cycle_iters=iters,
+                warmup_iters=warmup_iters,
+                min_learning_rate=min_learning_rate,
+            )
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = lr
+            
+            batch = get_batch(dataset, batch_size, context_length, device)
+            optimizer.zero_grad()
+            training_loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
 
-        if iteration % 10 == 0:
-            print(f"Loss at iteration {iteration} is {loss}")
+            training_loss.backward()
+            optimizer.step()
 
-        loss.backward()
-        optimizer.step()
+            tepoch.set_postfix({'loss': training_loss})
 
-        if iteration % 1000 == 0:
-            save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
+            if iteration % 1000 == 0:
+                save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
 
     save_checkpoint(model, optimizer, iters, os.path.join(checkpoint_path, "final.ckp"))
     
