@@ -1,9 +1,11 @@
 from collections import defaultdict
 from copy import deepcopy
+from io import BytesIO
 from typing import Iterable, Iterator
 
+from env_variables import NUM_PROCESSES
 from tqdm import tqdm
-from .tokenizer_utils import pretokenize, initialize_pair_frequencies, apply_merge, PAT
+from .tokenizer_utils import pretokenize, initialize_pair_frequencies, apply_merge, PAT, pretokenize_corpus_parallel
 import regex as re
 
 
@@ -58,7 +60,7 @@ class Tokenizer:
         return tokens
 
     def encode(self, text: str) -> list[int]:
-        pretoken_counts = pretokenize(text=text, special_tokens=self.special_tokens)
+        pretoken_counts = pretokenize_corpus_parallel(f=BytesIO(text.encode()), num_processes=NUM_PROCESSES, special_tokens=self.special_tokens)
         pretokens_list = [(pretoken, count) for pretoken, count in pretoken_counts.items()]
         original_pretokens_list = deepcopy(pretokens_list)
         pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]] = defaultdict(set)

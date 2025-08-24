@@ -5,6 +5,7 @@ import pickle
 import sys
 import time
 
+from env_variables import NUM_PROCESSES
 import tqdm
 from .tokenizer_utils import pretokenize_corpus_parallel, TVocabulary, TBPEMerge, initialize_pair_frequencies, apply_merge
 from .tokenizer import Tokenizer
@@ -45,7 +46,7 @@ def run_bpe(input_path: str, vocabulary_size: int, special_tokens: list[str]) ->
     pair_frequencies: dict[tuple[bytes, bytes], int] = {}
     vocabulary = initialize_vocabulary(special_tokens)
     with open(input_path, "rb") as f:
-        pretokens = pretokenize_corpus_parallel(f, num_processes=7, special_tokens=special_tokens)
+        pretokens = pretokenize_corpus_parallel(f, num_processes=NUM_PROCESSES, special_tokens=special_tokens)
 
     merges: list[tuple[bytes, bytes]] = []
     pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]] = defaultdict(set)
