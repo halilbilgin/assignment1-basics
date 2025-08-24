@@ -3,7 +3,7 @@ from copy import deepcopy
 from io import BytesIO
 from typing import Iterable, Iterator
 
-from env_variables import NUM_PROCESSES
+from cs336_basics.env_variables import NUM_PROCESSES
 from tqdm import tqdm
 from .tokenizer_utils import initialize_pair_frequencies, apply_merge, PAT, pretokenize_corpus_parallel
 import regex as re

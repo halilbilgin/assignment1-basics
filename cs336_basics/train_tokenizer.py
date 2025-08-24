@@ -5,7 +5,7 @@ import pickle
 import sys
 import time
 
-from env_variables import NUM_PROCESSES
+from cs336_basics.env_variables import NUM_PROCESSES
 import tqdm
 from .tokenizer_utils import pretokenize_corpus_parallel, TVocabulary, TBPEMerge, initialize_pair_frequencies, apply_merge
 from .tokenizer import Tokenizer
