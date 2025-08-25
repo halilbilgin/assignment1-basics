@@ -282,7 +282,7 @@ class Transformer(nn.Module):
 
     def forward(self, x: Float[Tensor, "... seq_len d_model"]) -> Float[Tensor, "... seq_len d_model"]:
         token_positions = (
-            torch.range(0, x.shape[-2] - 1, dtype=torch.int).broadcast_to(*x.shape[:-1]).to(device=self.device)
+            torch.arange(0, x.shape[-2], dtype=torch.int).broadcast_to(*x.shape[:-1]).to(device=self.device)
         )
         first_layer = x + self.multi_head_self_attention(self.rms_norm_first(x), token_positions=token_positions)
 

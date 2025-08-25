@@ -20,7 +20,7 @@ class LLMInference:
         max_token_generated = max_token_generated or self.max_token_generated
         tokens = self.tokenizer.encode(text)
         
-        tokens_torchified = torch.from_numpy(np.asarray(self.llm(tokens))).reshape(1, -1)
+        tokens_torchified = torch.from_numpy(np.asarray(tokens)).to(self.device).reshape(1, -1)
         generated_text: str = ""
         
         for _ in range(max_token_generated):
