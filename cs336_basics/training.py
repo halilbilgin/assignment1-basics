@@ -73,7 +73,7 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 @click.option("--pretrained-tokenizer-path", type=str, default=None, help="pretrained tokenizer path if exists.")
 @click.option("--pretrained-checkpoint-path", type=str, default=None, help="checkpoint path")
 @click.option("--tokenized-data-path", type=str, default=None, help="pretokenized dataset path")
-
+@click.option("--first-n-tokens", type=int, default=None, help="First n tokens from dataset to use during training for debugging purposes.")
 def train(
     input_path: str,
     vocab_size: int,
@@ -96,6 +96,7 @@ def train(
     pretrained_tokenizer_path: str | None,
     pretrained_checkpoint_path: str | None,
     tokenized_data_path: str | None,
+    first_n_tokens: int | None
 ):
     if tokenized_data_path and not pretrained_tokenizer_path:
         raise ValueError("Must provide the pretrained tokenizer if tokenized data is provided.")
@@ -126,7 +127,7 @@ def train(
             tokens = tokenizer.encode(f_read.read())
             np.save(f_write, np.asarray(tokens))
     
-    dataset = load_dataset(tokenized_data_path)
+    dataset = load_dataset(tokenized_data_path)[:first_n_tokens]
 
     model = TransformerLM(
         vocab_size=vocab_size,
