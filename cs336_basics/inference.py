@@ -31,7 +31,7 @@ class LLMInference:
             next_token_predictions_with_scaling = self.llm.softmax(next_token_predictions_with_scaling)
 
             # do top p
-            top_p_value = torch.quantile(next_token_predictions_with_scaling, 1-top_p, dim=2)
+            top_p_value = torch.quantile(next_token_predictions_with_scaling, 1-top_p, dim=1)
             next_token_predictions_with_scaling[next_token_predictions_with_scaling<top_p_value] = 0
             
             pmf: torch.Tensor = next_token_predictions_with_scaling / next_token_predictions_with_scaling.sum(dim=-1)
