@@ -1,7 +1,7 @@
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from copy import deepcopy
 from io import BytesIO
-from typing import Iterable, Iterator
 
 from cs336_basics.env_variables import NUM_PROCESSES
 from tqdm import tqdm

@@ -1,11 +1,10 @@
 import os
 import pickle
-import tempfile
 import typing
 import click
 import torch
 from cs336_basics.tokenizer import Tokenizer
-from cs336_basics.train_tokenizer import run_bpe, train_tokenizer
+from cs336_basics.train_tokenizer import train_tokenizer
 from cs336_basics.optimizers import AdamW, CrossEntropy, learning_rate_scheduler
 from cs336_basics.model import TransformerLM
 from cs336_basics.data_loader import load_dataset, get_batch
@@ -72,6 +71,8 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 @click.option("--seed", type=int, default=42, help="Seed")
 @click.option("--pretrained-tokenizer-path", type=str, default=None, help="pretrained tokenizer path if exists.")
 @click.option("--pretrained-checkpoint-path", type=str, default=None, help="checkpoint path")
+@click.option("--tokenized-data-path", type=str, default=None, help="pretokenized dataset path")
+
 def train(
     input_path: str,
     vocab_size: int,
@@ -92,8 +93,12 @@ def train(
     device: str,
     seed: int,
     pretrained_tokenizer_path: str | None,
-    pretrained_checkpoint_path: str | None
+    pretrained_checkpoint_path: str | None,
+    tokenized_data_path: str | None,
 ):
+    if tokenized_data_path and not pretrained_tokenizer_path:
+        raise ValueError("Must provide the pretrained tokenizer if tokenized data is provided.")
+
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -113,12 +118,14 @@ def train(
             input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
         )
     
-    tokenized_data_file = os.path.join(output_path, "tokenized_training_data.npt") 
-    with open(tokenized_data_file, "wb+") as f_write, open(input_path) as f_read:
-        tokens = tokenizer.encode(f_read.read())
-        np.save(f_write, np.asarray(tokens))
-
-    dataset = load_dataset(tokenized_data_file)
+    if tokenized_data_path is None:
+        tokenized_data_path = os.path.join(output_path, "tokenized_training_data.npt")
+        
+        with open(tokenized_data_path, "wb+") as f_write, open(input_path) as f_read:
+            tokens = tokenizer.encode(f_read.read())
+            np.save(f_write, np.asarray(tokens))
+    
+    dataset = load_dataset(tokenized_data_path)
 
     model = TransformerLM(
         vocab_size=vocab_size,
