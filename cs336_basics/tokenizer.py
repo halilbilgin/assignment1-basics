@@ -35,12 +35,12 @@ class Tokenizer:
         tokens: list[int] = []
         segments = re.split("|".join(re.escape(token) for token in sorted(self.special_tokens,reverse=True)), text) if self.special_tokens else [text]
         current_index = 0
-        for segment_index, segment in enumerate(segments):
+        for segment_index, segment in tqdm(enumerate(segments), desc="Encoding"):
             if segment_index > 0 and self.special_tokens:
                 special_token_found = max([
                     special_token
                     for special_token in self.special_tokens
-                    if text[current_index:].find(special_token) == 0
+                    if text[current_index:current_index+len(special_token)] == special_token
                 ])
                 special_token_end_index: int = current_index + len(special_token_found)
                 tokens.append(self.inverse_vocabulary[special_token_found.encode("utf-8")])

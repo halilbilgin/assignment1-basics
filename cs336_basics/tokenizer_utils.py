@@ -101,7 +101,7 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
         boundaries = find_chunk_boundaries(f, num_processes * 1000, b"<|endoftext|>")
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
-        for i, (start, end) in tqdm.tqdm(enumerate(zip(boundaries[:-1], boundaries[1:])), total=len(boundaries) - 1):
+        for i, (start, end) in tqdm.tqdm(enumerate(zip(boundaries[:-1], boundaries[1:])), desc="Pretokenizing", total=len(boundaries) - 1):
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="strict")
             # Run pre-tokenization on your chunk and store the counts for each pre-token

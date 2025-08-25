@@ -71,6 +71,7 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 @click.option("--device", type=str, default="cpu", help="Device to use (cpu or cuda).")
 @click.option("--seed", type=int, default=42, help="Seed")
 @click.option("--pretrained-tokenizer-path", type=str, default=None, help="pretrained tokenizer path if exists.")
+@click.option("--pretrained-checkpoint-path", type=str, default=None, help="checkpoint path")
 def train(
     input_path: str,
     vocab_size: int,
@@ -90,7 +91,8 @@ def train(
     output_path: str,
     device: str,
     seed: int,
-    pretrained_tokenizer_path: str | None
+    pretrained_tokenizer_path: str | None,
+    pretrained_checkpoint_path: str | None
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -111,7 +113,7 @@ def train(
             input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
         )
     
-    _, tokenized_data_file = tempfile.mkstemp()
+    tokenized_data_file = os.path.join(output_path, "tokenized_training_data.npt") 
     with open(tokenized_data_file, "wb+") as f_write, open(input_path) as f_read:
         tokens = tokenizer.encode(f_read.read())
         np.save(f_write, np.asarray(tokens))
@@ -128,11 +130,17 @@ def train(
         rope_theta=rope_theta,
         device=torch.device(device)
     )
+    
     loss_function = CrossEntropy()
     optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
 
+    if pretrained_checkpoint_path:
+        current_iteration = load_checkpoint(pretrained_checkpoint_path, model, optimizer)
+    else:
+        current_iteration = 0
+
     with tqdm.tqdm(total=iters, unit=" iter", mininterval=1) as tepoch:
-        for iteration in range(iters):
+        for iteration in range(current_iteration, iters):
             tepoch.update(1)
             # Update learning rate of the optimizer using the scheduler:
             lr = learning_rate_scheduler(
