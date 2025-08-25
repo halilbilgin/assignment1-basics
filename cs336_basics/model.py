@@ -306,7 +306,7 @@ class TransformerLM(nn.Module):
         self.context_length = context_length
         self.num_layers = num_layers
         self.token_embedding_layer = Embedding(vocab_size, d_model, dtype=torch.float, device=device)
-        self.transformer_blocks = [
+        self.transformer_blocks = nn.ModuleList([
             Transformer(
                 d_model=d_model,
                 num_heads=num_heads,
@@ -316,7 +316,7 @@ class TransformerLM(nn.Module):
                 device=device,
             )
             for _ in range(num_layers)
-        ]
+        ])
         self.rms_norm_final = RMSNorm(d_model, device=device)
         self.final_linear = torch.nn.Linear(d_model, vocab_size, bias=False, device=device)
 
