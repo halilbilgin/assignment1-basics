@@ -39,7 +39,7 @@ def _load_checkpoint(f: typing.BinaryIO | typing.IO[bytes]):
     return pickle.loads(f.read())
 
 
-def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimizer):
+def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimizer | None = None):
     if isinstance(src, str) or isinstance(src, os.PathLike):
         with open(src, "rb") as f:
             output_dictionary = _load_checkpoint(f)
@@ -47,7 +47,8 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
         output_dictionary = _load_checkpoint(src)
 
     model.load_state_dict(output_dictionary["model_state"])
-    optimizer.load_state_dict(output_dictionary["optimizer_state"])
+    if optimizer:
+        optimizer.load_state_dict(output_dictionary["optimizer_state"])
     return output_dictionary["iteration"]
 
 @click.command()

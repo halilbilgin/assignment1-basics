@@ -19,28 +19,38 @@ class LLMInference:
         temperature, top_p = temperature or self.temperature, top_p or self.top_p
         max_token_generated = max_token_generated or self.max_token_generated
         tokens = self.tokenizer.encode(text)
-        
-        tokens_torchified = torch.from_numpy(np.asarray(tokens)).to(self.device).reshape(1, -1)
+          
         generated_text: str = ""
         
         for _ in range(max_token_generated):
+            tokens_torchified = torch.from_numpy(np.asarray(tokens)).to(device=self.device).reshape(1, -1)
             # get only last token's next token prediction as we don't care the rest for this use case.
-            next_token_predictions: torch.Tensor = self.llm(tokens_torchified)[:, -1, :]
+            next_token_predictions: torch.Tensor = self.llm(tokens_torchified)[:, -1:, :]
 
-            next_token_predictions_with_scaling = next_token_predictions / temperature
-            next_token_predictions_with_scaling = self.llm.softmax(next_token_predictions_with_scaling)
+            logits = next_token_predictions / temperature
+            probs = self.llm.softmax(logits)
 
             # do top p
-            top_p_value = torch.quantile(next_token_predictions_with_scaling, 1-top_p, dim=2)
-            next_token_predictions_with_scaling[next_token_predictions_with_scaling<top_p_value] = 0
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+            # Keep only tokens with cumulative probability <= top_p
+            cutoff = cumulative_probs > top_p
+            # Set probabilities above the cutoff to zero
+            sorted_probs[cutoff] = 0
+            # Re-normalize
+            probs = torch.zeros_like(probs)
+            probs.scatter_(-1, sorted_indices, sorted_probs)
+            pmf = probs / probs.sum(dim=-1, keepdim=True)
             
-            pmf: torch.Tensor = next_token_predictions_with_scaling / next_token_predictions_with_scaling.sum(dim=-1)
             cdf = torch.cumsum(pmf, dim=-1)
-            uniform_samples = torch.rand(cdf.shape[0]).reshape(-1, 1, 1)
-            
-            generated_text += self.tokenizer.decode(torch.searchsorted(cdf, uniform_samples)[0].numpy()[0, 0].item())
+            uniform_samples = torch.rand(cdf.shape[0]).to(device=self.device).reshape(-1, 1, 1)
+            token_predicted = torch.searchsorted(cdf, uniform_samples)[0].cpu().numpy()[0, 0].item()
+            token_predicted = min(max(token_predicted, 0), probs.shape[-1] - 1)
 
-            if generated_text[-1].endswith("<|endoftext|>"):
+            tokens.append(token_predicted)
+            generated_text += self.tokenizer.decode([token_predicted])
+
+            if generated_text.endswith("<|endoftext|>"):
                 break
 
         
