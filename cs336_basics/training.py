@@ -54,15 +54,14 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset: npt.NDArray, vocab_size: int, batch_size: int, context_length: int, device: torch.device):
     # cross entropy ?
     # sum()
-    
+    num_batches = dataset.shape[0]//(context_length*batch_size)-1
     validation_loss = 0
-    for i in range(dataset.shape[0]//context_length//batch_size-1):
-        
+    for i in range(num_batches):
         # context_length * batch_size * 2
         batch_indices = (
             np.tile(np.arange(start=0, stop=context_length), reps=(batch_size, 2))
         )
-        batch_indices[:, context_length:] += i*batch_size
+        batch_indices[:, context_length:] += i*batch_size*context_length
 
         # batch size 4, m=3
         # [
@@ -77,7 +76,7 @@ def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset
         batch = result[:, 0, :], result[:, 1, :]
         validation_loss += loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
 
-    return validation_loss / (dataset.shape[0]//batch_size)
+    return validation_loss / num_batches
 
 @click.command()
 @click.option("--input-path", type=str, required=True, help="Path to input text file.")
