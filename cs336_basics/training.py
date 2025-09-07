@@ -56,14 +56,14 @@ def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset
     # sum()
     
     validation_loss = 0
-    for i in range(dataset.shape[0]//batch_size):
-    
+    for i in range(dataset.shape[0]//context_length//batch_size-1):
+        
         # context_length * batch_size * 2
         batch_indices = (
             np.tile(np.arange(start=0, stop=context_length), reps=(batch_size, 2))
         )
-        batch_indices[:, context_length:] += 1
-        batch_indices += np.arange(i*batch_size, (i+1)*batch_size+1).reshape(-1, 1) # (batch_size, context_length*2)
+        batch_indices[:, context_length:] += i*batch_size
+
         # batch size 4, m=3
         # [
         #   [0,1,2,3,4,5],
@@ -187,6 +187,8 @@ def train(
         current_iteration = load_checkpoint(pretrained_checkpoint_path, model, optimizer)
     else:
         current_iteration = 0
+    
+    val_loss = torch.Tensor([0.0])
 
     with tqdm.tqdm(total=iters, unit=" iter", mininterval=1) as tepoch:
         for iteration in range(current_iteration, iters):
@@ -202,21 +204,21 @@ def train(
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
             
-            batch = get_batch(training_dataset, batch_size, context_length, torch.device(device))
+            batch = get_batch(training_dataset, batch_size, context_length, device)
             optimizer.zero_grad()
             training_loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
 
             training_loss.backward()
             optimizer.step()
 
-            tepoch.set_postfix({'loss': training_loss})
 
             if iteration % 1000 == 0:
                 with torch.no_grad():
                     val_loss = compute_loss(loss_function, model, validation_dataset, vocab_size=vocab_size, batch_size=batch_size, context_length=context_length, device=device)
-                    tepoch.set_postfix({'loss': training_loss, 'validation_loss': val_loss})
-
                 save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
+
+            tepoch.set_postfix({'loss': training_loss.item(), 'validation_loss': val_loss.item()})
+
 
     save_checkpoint(model, optimizer, iters, os.path.join(checkpoint_path, "final.ckp"))
     
