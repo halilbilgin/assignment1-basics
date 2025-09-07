@@ -10,7 +10,7 @@ from cs336_basics.model import TransformerLM
 from cs336_basics.data_loader import load_dataset, get_batch
 import numpy as np
 import tqdm
-
+from numpy import typing as npt
 
 def _save_checkpoint(f: typing.BinaryIO | typing.IO[bytes], data: dict) -> None:
     f.write(pickle.dumps(data))
@@ -51,8 +51,37 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
         optimizer.load_state_dict(output_dictionary["optimizer_state"])
     return output_dictionary["iteration"]
 
+def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset: npt.NDArray, vocab_size: int, batch_size: int, context_length: int, device: torch.device):
+    # cross entropy ?
+    # sum()
+    
+    validation_loss = 0
+    for i in range(dataset.shape[0]//batch_size):
+    
+        # context_length * batch_size * 2
+        batch_indices = (
+            np.tile(np.arange(start=0, stop=context_length), reps=(batch_size, 2))
+        )
+        batch_indices[:, context_length:] += 1
+        batch_indices += np.arange(i*batch_size, (i+1)*batch_size+1).reshape(-1, 1) # (batch_size, context_length*2)
+        # batch size 4, m=3
+        # [
+        #   [0,1,2,3,4,5],
+        #   [0,1,2,3,4,5],
+        #   [0,1,2,3,4,5],
+        #   [0,1,2,3,4,5]
+        # ]
+
+        batch_np = dataset[batch_indices.flatten()].reshape(batch_size, 2, context_length)
+        result = torch.from_numpy(batch_np).to(device)
+        batch = result[:, 0, :], result[:, 1, :]
+        validation_loss += loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
+
+    return validation_loss / (dataset.shape[0]//batch_size)
+
 @click.command()
 @click.option("--input-path", type=str, required=True, help="Path to input text file.")
+@click.option("--input-validation-path", type=str, required=True, help="Path to validation input text file.")
 @click.option("--vocab-size", type=int, required=True, help="Vocabulary size for tokenizer.")
 @click.option("--context-length", type=int, required=True, help="Context length for transformer.")
 @click.option("--d-model", type=int, required=True, help="Transformer model dimension.")
@@ -72,10 +101,12 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
 @click.option("--seed", type=int, default=42, help="Seed")
 @click.option("--pretrained-tokenizer-path", type=str, default=None, help="pretrained tokenizer path if exists.")
 @click.option("--pretrained-checkpoint-path", type=str, default=None, help="checkpoint path")
-@click.option("--tokenized-data-path", type=str, default=None, help="pretokenized dataset path")
+@click.option("--tokenized-training-data-path", type=str, default=None, help="pretokenized training dataset path")
+@click.option("--tokenized-validation-data-path", type=str, default=None, help="pretokenized validation dataset path.")
 @click.option("--first-n-tokens", type=int, default=None, help="First n tokens from dataset to use during training for debugging purposes.")
 def train(
     input_path: str,
+    input_validation_path: str,
     vocab_size: int,
     context_length: int,
     d_model: int,
@@ -83,8 +114,8 @@ def train(
     rope_theta: float,
     num_layers: int,
     num_heads: int,
-    min_learning_rate: int,
-    max_learning_rate: int,
+    min_learning_rate: float,
+    max_learning_rate: float,
     warmup_iters: int,
     iters: int,
     batch_size: int,
@@ -95,10 +126,11 @@ def train(
     seed: int,
     pretrained_tokenizer_path: str | None,
     pretrained_checkpoint_path: str | None,
-    tokenized_data_path: str | None,
+    tokenized_training_data_path: str | None,
+    tokenized_validation_data_path: str | None,
     first_n_tokens: int | None
 ):
-    if tokenized_data_path and not pretrained_tokenizer_path:
+    if (tokenized_training_data_path or tokenized_validation_data_path) and not pretrained_tokenizer_path:
         raise ValueError("Must provide the pretrained tokenizer if tokenized data is provided.")
 
     torch.manual_seed(seed)
@@ -120,14 +152,22 @@ def train(
             input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
         )
     
-    if tokenized_data_path is None:
-        tokenized_data_path = os.path.join(output_path, "tokenized_training_data.npt")
+    if tokenized_training_data_path is None:
+        tokenized_training_data_path = os.path.join(output_path, "tokenized_training_data.npt")
         
-        with open(tokenized_data_path, "wb+") as f_write, open(input_path) as f_read:
-            tokens = tokenizer.encode(f_read.read())
-            np.save(f_write, np.asarray(tokens))
-    
-    dataset = load_dataset(tokenized_data_path)[:first_n_tokens]
+        with open(tokenized_training_data_path, "wb+") as f_write, open(input_path) as f_read:
+            training_dataset_tokens = tokenizer.encode(f_read.read())
+            np.save(f_write, np.asarray(training_dataset_tokens))
+
+    if tokenized_validation_data_path is None:
+        tokenized_validation_data_path = os.path.join(output_path, "tokenized_validation_data.npt")
+        
+        with open(tokenized_validation_data_path, "wb+") as f_write, open(input_validation_path) as f_read:
+            validation_dataset_tokens = tokenizer.encode(f_read.read())
+            np.save(f_write, np.asarray(validation_dataset_tokens))
+
+    training_dataset = load_dataset(tokenized_training_data_path)[:first_n_tokens]
+    validation_dataset = load_dataset(tokenized_validation_data_path)
 
     model = TransformerLM(
         vocab_size=vocab_size,
@@ -162,7 +202,7 @@ def train(
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
             
-            batch = get_batch(dataset, batch_size, context_length, device)
+            batch = get_batch(training_dataset, batch_size, context_length, torch.device(device))
             optimizer.zero_grad()
             training_loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
 
@@ -172,6 +212,10 @@ def train(
             tepoch.set_postfix({'loss': training_loss})
 
             if iteration % 1000 == 0:
+                with torch.no_grad():
+                    val_loss = compute_loss(loss_function, model, validation_dataset, vocab_size=vocab_size, batch_size=batch_size, context_length=context_length, device=device)
+                    tepoch.set_postfix({'loss': training_loss, 'validation_loss': val_loss})
+
                 save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
 
     save_checkpoint(model, optimizer, iters, os.path.join(checkpoint_path, "final.ckp"))

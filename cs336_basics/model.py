@@ -13,7 +13,7 @@ class Linear(nn.Module):
     ):
         super().__init__()
 
-        std = math.sqrt(2 / in_features + out_features)
+        std = math.sqrt(2 / (in_features + out_features))
 
         self.W: Float[nn.Parameter, "out_features in_features"] = nn.Parameter(
             nn.init.trunc_normal_(torch.zeros((out_features, in_features)), mean=0, std=std, a=-3 * std, b=3 * std).to(
