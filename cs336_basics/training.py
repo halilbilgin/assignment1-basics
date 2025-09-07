@@ -145,7 +145,7 @@ def train(
     os.makedirs(checkpoint_path, exist_ok=True)
 
     if pretrained_tokenizer_path:
-        with open(pretrained_tokenizer_path + "vocabulary.pkl", "rb") as vocabulary_pkl, open(pretrained_tokenizer_path + "merges.pkl", "rb") as merges_pkl:
+        with open(os.path.join(pretrained_tokenizer_path, "vocabulary.pkl"), "rb") as vocabulary_pkl, open(os.path.join(pretrained_tokenizer_path, "merges.pkl"), "rb") as merges_pkl:
             tokenizer = Tokenizer(merges=pickle.load(merges_pkl), vocabulary=pickle.load(vocabulary_pkl), special_tokens=["<|endoftext|>"])
     else:
         tokenizer = train_tokenizer(
@@ -214,7 +214,7 @@ def train(
 
             if iteration % 1000 == 0:
                 with torch.no_grad():
-                    val_loss = compute_loss(loss_function, model, validation_dataset, vocab_size=vocab_size, batch_size=batch_size, context_length=context_length, device=device)
+                    val_loss = compute_loss(loss_function, model, validation_dataset, vocab_size=vocab_size, batch_size=batch_size, context_length=context_length, device=torch.device(device))
                 save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
 
             tepoch.set_postfix({'loss': training_loss.item(), 'validation_loss': val_loss.item()})

@@ -1,6 +1,7 @@
 """Implement a BPE based subword tokenizer."""
 
 from collections import defaultdict
+import os
 import pickle
 import sys
 import time
@@ -76,10 +77,10 @@ def train_tokenizer(input_path: str, output_path: str, vocabulary_size: int, spe
         input_path=input_path, vocabulary_size=int(vocabulary_size), special_tokens=special_tokens
     )
     print(f"Took {time.perf_counter() - start_time}s.")
-    with open(output_path + "vocabulary.pkl", "wb") as f:
+    with open(os.path.join(output_path, "vocabulary.pkl"), "wb") as f:
         pickle.dump(vocabulary, f)
 
-    with open(output_path + "merges.pkl", "wb") as f:
+    with open(os.path.join(output_path, "merges.pkl"), "wb") as f:
         pickle.dump(merges, f)
 
     return Tokenizer(vocabulary=vocabulary, merges=merges, special_tokens=special_tokens)
