@@ -6,7 +6,7 @@ import torch
 from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.train_tokenizer import train_tokenizer
 from cs336_basics.optimizers import AdamW, CrossEntropy, learning_rate_scheduler
-from cs336_basics.model import TransformerLM
+from cs336_basics.model import TransformerLM, TransformerLMConfig
 from cs336_basics.data_loader import load_dataset, get_batch
 import numpy as np
 import tqdm
@@ -17,7 +17,7 @@ def _save_checkpoint(f: typing.BinaryIO | typing.IO[bytes], data: dict) -> None:
 
 
 def save_checkpoint(
-    model: torch.nn.Module,
+    model: TransformerLM,
     optimizer: torch.optim.Optimizer,
     iteration: int,
     out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
@@ -26,7 +26,9 @@ def save_checkpoint(
         "model_state": model.state_dict(),
         "iteration": iteration,
         "optimizer_state": optimizer.state_dict(),
+        "model_config": model.model_config.model_dump() if hasattr(model, "model_config") else {}
     }
+    
 
     if isinstance(out, str) or isinstance(out, os.PathLike):
         with open(out, "wb") as f:
@@ -51,11 +53,22 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
         optimizer.load_state_dict(output_dictionary["optimizer_state"])
     return output_dictionary["iteration"]
 
+def load_model(src, device: torch.device|None = None):
+    if isinstance(src, str) or isinstance(src, os.PathLike):
+        with open(src, "rb") as f:
+            output_dictionary = _load_checkpoint(f)
+    else:
+        output_dictionary = _load_checkpoint(src)
+    
+    return TransformerLM(TransformerLMConfig.model_validate(output_dictionary["model_config"]), device)
+    
+
+
 def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset: npt.NDArray, vocab_size: int, batch_size: int, context_length: int, device: torch.device):
     # cross entropy ?
     # sum()
     num_batches = dataset.shape[0]//(context_length*batch_size)-1
-    validation_loss = 0
+    validation_loss = torch.Tensor([0])
     for i in range(num_batches):
         # context_length * batch_size * 2
         batch_indices = (
@@ -144,8 +157,7 @@ def train(
     os.makedirs(checkpoint_path, exist_ok=True)
 
     if pretrained_tokenizer_path:
-        with open(os.path.join(pretrained_tokenizer_path, "vocabulary.pkl"), "rb") as vocabulary_pkl, open(os.path.join(pretrained_tokenizer_path, "merges.pkl"), "rb") as merges_pkl:
-            tokenizer = Tokenizer(merges=pickle.load(merges_pkl), vocabulary=pickle.load(vocabulary_pkl), special_tokens=["<|endoftext|>"])
+        tokenizer = Tokenizer.load_from_path(pretrained_tokenizer_path)
     else:
         tokenizer = train_tokenizer(
             input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
@@ -168,24 +180,29 @@ def train(
     training_dataset = load_dataset(tokenized_training_data_path)[:first_n_tokens]
     validation_dataset = load_dataset(tokenized_validation_data_path)
 
-    model = TransformerLM(
-        vocab_size=vocab_size,
-        context_length=context_length,
-        num_layers=num_layers,
-        num_heads=num_heads,
-        d_model=d_model,
-        d_ff=d_ff,
-        rope_theta=rope_theta,
-        device=torch.device(device)
-    )
-    
-    loss_function = CrossEntropy()
-    optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
-
     if pretrained_checkpoint_path:
+        model = load_model(pretrained_checkpoint_path, device=torch.device(device))
+
+        optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
+
         current_iteration = load_checkpoint(pretrained_checkpoint_path, model, optimizer)
     else:
         current_iteration = 0
+        model_config = TransformerLMConfig(
+            vocab_size=vocab_size,
+            context_length=context_length,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            d_model=d_model,
+            d_ff=d_ff,
+            rope_theta=rope_theta
+        )
+        model = TransformerLM(model_config, device=torch.device(device))
+        optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
+
+
+    loss_function = CrossEntropy()
+
     
     val_loss = torch.Tensor([0.0])
 

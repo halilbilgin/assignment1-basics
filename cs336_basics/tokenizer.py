@@ -2,25 +2,31 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from copy import deepcopy
 from io import BytesIO
+import os
+import pickle
 
 from cs336_basics.env_variables import NUM_PROCESSES
 from tqdm import tqdm
 from .tokenizer_utils import initialize_pair_frequencies, apply_merge, PAT, pretokenize_corpus_parallel
 import regex as re
 
+SPLIT_SPECIAL_TOKEN = "<|endoftext|>"
+
 
 class Tokenizer:
     def __init__(
-        self, vocabulary: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str]
+        self, vocabulary: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None
     ) -> None:
         if special_tokens is None:
-            special_tokens = []
+            special_tokens = [SPLIT_SPECIAL_TOKEN]
+        if special_tokens and SPLIT_SPECIAL_TOKEN not in special_tokens:
+            raise ValueError(f"{SPLIT_SPECIAL_TOKEN} must be a special token.")
 
         self.vocabulary = vocabulary
 
         self.inverse_vocabulary: dict[bytes, int] = {token: id for id, token in vocabulary.items()}
 
-        for i in range(len(special_tokens)):
+        for i in range(len(special_tokens) if special_tokens else 0):
             encoded_special_token = special_tokens[i].encode("utf-8")
             if encoded_special_token in self.inverse_vocabulary:
                 continue
@@ -33,15 +39,21 @@ class Tokenizer:
 
     def _encode(self, pretoken_conversion: dict[tuple[bytes, ...], tuple[bytes, ...]], text: str) -> list[int]:
         tokens: list[int] = []
-        segments = re.split("|".join(re.escape(token) for token in sorted(self.special_tokens,reverse=True)), text) if self.special_tokens else [text]
+        segments = (
+            re.split("|".join(re.escape(token) for token in sorted(self.special_tokens, reverse=True)), text)
+            if self.special_tokens
+            else [text]
+        )
         current_index = 0
         for segment_index, segment in tqdm(enumerate(segments), desc="Encoding"):
             if segment_index > 0 and self.special_tokens:
-                special_token_found = max([
-                    special_token
-                    for special_token in self.special_tokens
-                    if text[current_index:current_index+len(special_token)] == special_token
-                ])
+                special_token_found = max(
+                    [
+                        special_token
+                        for special_token in self.special_tokens
+                        if text[current_index : current_index + len(special_token)] == special_token
+                    ]
+                )
                 special_token_end_index: int = current_index + len(special_token_found)
                 tokens.append(self.inverse_vocabulary[special_token_found.encode("utf-8")])
                 current_index += special_token_end_index - current_index
@@ -60,7 +72,9 @@ class Tokenizer:
         return tokens
 
     def encode(self, text: str) -> list[int]:
-        pretoken_counts = pretokenize_corpus_parallel(f=BytesIO(text.encode()), num_processes=NUM_PROCESSES, special_tokens=self.special_tokens)
+        pretoken_counts = pretokenize_corpus_parallel(
+            f=BytesIO(text.encode()), num_processes=NUM_PROCESSES, special_tokens=self.special_tokens
+        )
         pretokens_list = [(pretoken, count) for pretoken, count in pretoken_counts.items()]
         original_pretokens_list = deepcopy(pretokens_list)
         pairs_to_pretoken_indices: dict[tuple[bytes, bytes], set[int]] = defaultdict(set)
@@ -85,11 +99,15 @@ class Tokenizer:
         for item in iterable:
             accumulated_string += item
             if len(accumulated_string) > 10000:
-                yield from self.encode(accumulated_string)
-                accumulated_string = ""
+                index = accumulated_string.rfind(SPLIT_SPECIAL_TOKEN)
+                if index == -1:
+                    continue
 
-        yield from self.encode(accumulated_string) 
+                yield from self.encode(accumulated_string[: index + len(SPLIT_SPECIAL_TOKEN)])
+                accumulated_string = accumulated_string[index + len(SPLIT_SPECIAL_TOKEN) :]
 
+        if accumulated_string:
+            yield from self.encode(accumulated_string)
 
     def decode(self, tokens: list[int]) -> str:
         text_list: list[bytes] = []
@@ -98,8 +116,20 @@ class Tokenizer:
             text_list.append(self.vocabulary[token])
 
         text_bytes: bytes = b""
-        
+
         for byte in text_list:
             text_bytes += byte
 
         return text_bytes.decode("utf-8", errors="replace")
+
+    @classmethod
+    def load_from_path(cls, filepath: str):
+        with (
+            open(os.path.join(filepath, "vocabulary.pkl"), "rb") as vocabulary_pkl,
+            open(os.path.join(filepath, "merges.pkl"), "rb") as merges_pkl,
+        ):  # noqa: F821
+            return Tokenizer(
+                merges=pickle.load(merges_pkl),
+                vocabulary=pickle.load(vocabulary_pkl),
+                special_tokens=[SPLIT_SPECIAL_TOKEN],
+            )

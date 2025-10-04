@@ -73,7 +73,7 @@ def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
 
     for bi in range(1, len(chunk_boundaries) - 1):
-        initial_position = chunk_boundaries[bi]
+        initial_position = max([chunk_boundaries[bi-1], chunk_boundaries[bi]])
         file.seek(initial_position)  # Start at boundary guess
         while True:
             mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
@@ -86,7 +86,7 @@ def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special
             # Find the special token in the mini chunk
             found_at = mini_chunk.find(split_special_token)
             if found_at != -1:
-                chunk_boundaries[bi] = initial_position + found_at
+                chunk_boundaries[bi] = initial_position + found_at+len(split_special_token)
                 break
             initial_position += mini_chunk_size
 
@@ -98,7 +98,7 @@ def pretokenize_corpus_parallel(f: BinaryIO, num_processes: int, special_tokens:
     result: TPretokenCounts = {}
     with ProcessPoolExecutor(max_workers=num_processes) as pool:
         futures: list[Future[TPretokenCounts]] = []
-        boundaries = find_chunk_boundaries(f, num_processes * 1000, b"<|endoftext|>")
+        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
         for i, (start, end) in tqdm.tqdm(enumerate(zip(boundaries[:-1], boundaries[1:])), desc="Pretokenizing", total=len(boundaries) - 1):

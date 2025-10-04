@@ -10,7 +10,7 @@ from torch import Tensor
 
 from cs336_basics.train_tokenizer import run_bpe
 from cs336_basics.tokenizer import Tokenizer
-from cs336_basics.model import FFN, ROPE, Embedding, Linear, MultiHeadSelfAttention, RMSNorm, ScaledDotProductAttention, SiLU, SoftMax, Transformer, TransformerLM
+from cs336_basics.model import FFN, ROPE, Embedding, Linear, MultiHeadSelfAttention, RMSNorm, ScaledDotProductAttention, SiLU, SoftMax, Transformer, TransformerLM, TransformerLMConfig
 from cs336_basics.optimizers import AdamW, CrossEntropy, clip_gradients, learning_rate_scheduler
 from cs336_basics.data_loader import get_batch
 from cs336_basics.training import save_checkpoint, load_checkpoint
@@ -419,13 +419,15 @@ def run_transformer_lm(
         next-word distribution for each token.
     """
     transformer_lm = TransformerLM(
-        vocab_size=vocab_size,
-        context_length=context_length,
-        num_heads=num_heads,
-        num_layers=num_layers,
-        d_model=d_model,
-        d_ff=d_ff,
-        rope_theta=rope_theta
+        config=TransformerLMConfig(
+            vocab_size=vocab_size,
+            context_length=context_length,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            d_model=d_model,
+            d_ff=d_ff,
+            rope_theta=rope_theta
+        )
     )
     transformer_lm.token_embedding_layer.load_state_dict({
         "W": weights["token_embeddings.weight"] 

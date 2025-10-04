@@ -1,5 +1,6 @@
 import math
 from typing import Optional
+from pydantic import BaseModel
 import torch
 from torch import Tensor, nn
 from jaxtyping import Float, Integer
@@ -288,37 +289,41 @@ class Transformer(nn.Module):
 
         return first_layer + self.feed_forward(self.rms_norm_second(first_layer))
 
+class TransformerLMConfig(BaseModel):
+    vocab_size: int
+    context_length: int
+    num_layers: int
+    d_model: int
+    num_heads: int
+    d_ff: int
+    rope_theta: float
+
 
 class TransformerLM(nn.Module):
     def __init__(
         self,
-        vocab_size: int,
-        context_length: int,
-        num_layers: int,
-        d_model: int,
-        num_heads: int,
-        d_ff: int,
-        rope_theta: float,
+        config: TransformerLMConfig,
         device: torch.device | None = None,
     ):
         super().__init__()
-        self.vocab_size = vocab_size
-        self.context_length = context_length
-        self.num_layers = num_layers
-        self.token_embedding_layer = Embedding(vocab_size, d_model, dtype=torch.float, device=device)
+        self.model_config = config
+        self.vocab_size = config.vocab_size
+        self.context_length = config.context_length
+        self.num_layers = config.num_layers
+        self.token_embedding_layer = Embedding(config.vocab_size, config.d_model, dtype=torch.float, device=device)
         self.transformer_blocks = nn.ModuleList([
             Transformer(
-                d_model=d_model,
-                num_heads=num_heads,
-                d_ff=d_ff,
-                rope_theta=rope_theta,
-                max_seq_len=context_length,
+                d_model=config.d_model,
+                num_heads=config.num_heads,
+                d_ff=config.d_ff,
+                rope_theta=config.rope_theta,
+                max_seq_len=config.context_length,
                 device=device,
             )
-            for _ in range(num_layers)
+            for _ in range(config.num_layers)
         ])
-        self.rms_norm_final = RMSNorm(d_model, device=device)
-        self.final_linear = torch.nn.Linear(d_model, vocab_size, bias=False, device=device)
+        self.rms_norm_final = RMSNorm(config.d_model, device=device)
+        self.final_linear = torch.nn.Linear(config.d_model, config.vocab_size, bias=False, device=device)
 
         self.softmax = SoftMax(dim=-1)
 
@@ -329,3 +334,4 @@ class TransformerLM(nn.Module):
             result = transformer_block(result)
 
         return self.final_linear(self.rms_norm_final(result))
+
