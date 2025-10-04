@@ -12,6 +12,7 @@ import numpy as np
 import tqdm
 from numpy import typing as npt
 
+
 def _save_checkpoint(f: typing.BinaryIO | typing.IO[bytes], data: dict) -> None:
     f.write(pickle.dumps(data))
 
@@ -26,9 +27,8 @@ def save_checkpoint(
         "model_state": model.state_dict(),
         "iteration": iteration,
         "optimizer_state": optimizer.state_dict(),
-        "model_config": model.model_config.model_dump() if hasattr(model, "model_config") else {}
+        "model_config": model.model_config.model_dump() if hasattr(model, "model_config") else {},
     }
-    
 
     if isinstance(out, str) or isinstance(out, os.PathLike):
         with open(out, "wb") as f:
@@ -53,28 +53,34 @@ def load_checkpoint(src, model: torch.nn.Module, optimizer: torch.optim.Optimize
         optimizer.load_state_dict(output_dictionary["optimizer_state"])
     return output_dictionary["iteration"]
 
-def load_model(src, device: torch.device|None = None):
+
+def load_model(src, device: torch.device | None = None):
     if isinstance(src, str) or isinstance(src, os.PathLike):
         with open(src, "rb") as f:
             output_dictionary = _load_checkpoint(f)
     else:
         output_dictionary = _load_checkpoint(src)
-    
+
     return TransformerLM(TransformerLMConfig.model_validate(output_dictionary["model_config"]), device)
-    
 
 
-def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset: npt.NDArray, vocab_size: int, batch_size: int, context_length: int, device: torch.device):
+def compute_loss(
+    loss_function: torch.nn.Module,
+    model: torch.nn.Module,
+    dataset: npt.NDArray,
+    vocab_size: int,
+    batch_size: int,
+    context_length: int,
+    device: torch.device,
+):
     # cross entropy ?
     # sum()
-    num_batches = dataset.shape[0]//(context_length*batch_size)-1
+    num_batches = dataset.shape[0] // (context_length * batch_size) - 1
     validation_loss = torch.Tensor([0])
     for i in range(num_batches):
         # context_length * batch_size * 2
-        batch_indices = (
-            np.tile(np.arange(start=0, stop=context_length), reps=(batch_size, 2))
-        )
-        batch_indices[:, context_length:] += i*batch_size*context_length
+        batch_indices = np.tile(np.arange(start=0, stop=context_length), reps=(batch_size, 2))
+        batch_indices[:, context_length:] += i * batch_size * context_length
 
         # batch size 4, m=3
         # [
@@ -90,6 +96,7 @@ def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset
         validation_loss += loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
 
     return validation_loss / num_batches
+
 
 @click.command()
 @click.option("--input-path", type=str, required=True, help="Path to input text file.")
@@ -115,7 +122,12 @@ def compute_loss(loss_function: torch.nn.Module, model: torch.nn.Module, dataset
 @click.option("--pretrained-checkpoint-path", type=str, default=None, help="checkpoint path")
 @click.option("--tokenized-training-data-path", type=str, default=None, help="pretokenized training dataset path")
 @click.option("--tokenized-validation-data-path", type=str, default=None, help="pretokenized validation dataset path.")
-@click.option("--first-n-tokens", type=int, default=None, help="First n tokens from dataset to use during training for debugging purposes.")
+@click.option(
+    "--first-n-tokens",
+    type=int,
+    default=None,
+    help="First n tokens from dataset to use during training for debugging purposes.",
+)
 def train(
     input_path: str,
     input_validation_path: str,
@@ -140,7 +152,7 @@ def train(
     pretrained_checkpoint_path: str | None,
     tokenized_training_data_path: str | None,
     tokenized_validation_data_path: str | None,
-    first_n_tokens: int | None
+    first_n_tokens: int | None,
 ):
     if (tokenized_training_data_path or tokenized_validation_data_path) and not pretrained_tokenizer_path:
         raise ValueError("Must provide the pretrained tokenizer if tokenized data is provided.")
@@ -160,19 +172,22 @@ def train(
         tokenizer = Tokenizer.load_from_path(pretrained_tokenizer_path)
     else:
         tokenizer = train_tokenizer(
-            input_path=input_path, output_path=tokenizer_path, vocabulary_size=vocab_size, special_tokens=["<|endoftext|>"]
+            input_path=input_path,
+            output_path=tokenizer_path,
+            vocabulary_size=vocab_size,
+            special_tokens=["<|endoftext|>"],
         )
-    
+
     if tokenized_training_data_path is None:
         tokenized_training_data_path = os.path.join(output_path, "tokenized_training_data.npt")
-        
+
         with open(tokenized_training_data_path, "wb+") as f_write, open(input_path) as f_read:
             training_dataset_tokens = tokenizer.encode(f_read.read())
             np.save(f_write, np.asarray(training_dataset_tokens))
 
     if tokenized_validation_data_path is None:
         tokenized_validation_data_path = os.path.join(output_path, "tokenized_validation_data.npt")
-        
+
         with open(tokenized_validation_data_path, "wb+") as f_write, open(input_validation_path) as f_read:
             validation_dataset_tokens = tokenizer.encode(f_read.read())
             np.save(f_write, np.asarray(validation_dataset_tokens))
@@ -195,15 +210,13 @@ def train(
             num_heads=num_heads,
             d_model=d_model,
             d_ff=d_ff,
-            rope_theta=rope_theta
+            rope_theta=rope_theta,
         )
         model = TransformerLM(model_config, device=torch.device(device))
         optimizer = AdamW(params=model.parameters(), weight_decay=adamw_weight_decay, betas=adamw_betas)
 
-
     loss_function = CrossEntropy()
 
-    
     val_loss = torch.Tensor([0.0])
 
     with tqdm.tqdm(total=iters, unit=" iter", mininterval=1) as tepoch:
@@ -219,7 +232,7 @@ def train(
             )
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
-            
+
             batch = get_batch(training_dataset, batch_size, context_length, device)
             optimizer.zero_grad()
             training_loss = loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
@@ -227,17 +240,23 @@ def train(
             training_loss.backward()
             optimizer.step()
 
-
             if iteration % 1000 == 0:
                 with torch.no_grad():
-                    val_loss = compute_loss(loss_function, model, validation_dataset, vocab_size=vocab_size, batch_size=batch_size, context_length=context_length, device=torch.device(device))
+                    val_loss = compute_loss(
+                        loss_function,
+                        model,
+                        validation_dataset,
+                        vocab_size=vocab_size,
+                        batch_size=batch_size,
+                        context_length=context_length,
+                        device=torch.device(device),
+                    )
                 save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
 
-            tepoch.set_postfix({'loss': training_loss.item(), 'validation_loss': val_loss.item()})
-
+            tepoch.set_postfix({"loss": training_loss.item(), "validation_loss": val_loss.item()})
 
     save_checkpoint(model, optimizer, iters, os.path.join(checkpoint_path, "final.ckp"))
-    
+
 
 if __name__ == "__main__":
     train()
