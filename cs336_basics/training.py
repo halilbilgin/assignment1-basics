@@ -8,6 +8,8 @@ from cs336_basics.train_tokenizer import train_tokenizer
 from cs336_basics.optimizers import AdamW, CrossEntropy, learning_rate_scheduler
 from cs336_basics.model import TransformerLM, TransformerLMConfig
 from cs336_basics.data_loader import load_dataset, get_batch
+from torch.utils.tensorboard import SummaryWriter
+
 import numpy as np
 import tqdm
 from numpy import typing as npt
@@ -181,6 +183,7 @@ def train(
 
     training_dataset = load_dataset(tokenized_training_data_path)[:first_n_tokens]
     validation_dataset = load_dataset(tokenized_validation_data_path)
+    writer = SummaryWriter(output_path)
 
     if pretrained_checkpoint_path:
         model = load_model(pretrained_checkpoint_path, device=torch.device(device))
@@ -239,6 +242,9 @@ def train(
                         device=torch.device(device),
                     )
                 save_checkpoint(model, optimizer, iteration, os.path.join(checkpoint_path, f"iter{iteration}.ckp"))
+                writer.add_scalar("Loss/validation", val_loss.item(), iteration)
+            
+            writer.add_scalar("Loss/train", training_loss.item(), iteration)
 
             tepoch.set_postfix({"loss": training_loss.item(), "validation_loss": val_loss.item()})
 
