@@ -76,23 +76,9 @@ def compute_loss(
     # cross entropy ?
     # sum()
     num_batches = dataset.shape[0] // (context_length * batch_size) - 1
-    validation_loss = torch.Tensor([0])
+    validation_loss = torch.Tensor([0]).to(device)
     for i in range(num_batches):
-        # context_length * batch_size * 2
-        batch_indices = np.tile(np.arange(start=0, stop=context_length), reps=(batch_size, 2))
-        batch_indices[:, context_length:] += i * batch_size * context_length
-
-        # batch size 4, m=3
-        # [
-        #   [0,1,2,3,4,5],
-        #   [0,1,2,3,4,5],
-        #   [0,1,2,3,4,5],
-        #   [0,1,2,3,4,5]
-        # ]
-
-        batch_np = dataset[batch_indices.flatten()].reshape(batch_size, 2, context_length)
-        result = torch.from_numpy(batch_np).to(device)
-        batch = result[:, 0, :], result[:, 1, :]
+        batch = get_batch(dataset, batch_size=batch_size, context_length=context_length, device=device)
         validation_loss += loss_function(model(batch[0]).reshape(-1, vocab_size), batch[1].reshape(-1))
 
     return validation_loss / num_batches
@@ -158,6 +144,7 @@ def train(
         raise ValueError("Must provide the pretrained tokenizer if tokenized data is provided.")
 
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
     if warmup_iters >= iters:

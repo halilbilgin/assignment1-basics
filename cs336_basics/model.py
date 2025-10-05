@@ -62,7 +62,7 @@ class RMSNorm(nn.Module):
         self.d_model = d_model
         self.eps = eps
         self.device, self.dtype = device, dtype
-        self.g = nn.Parameter(torch.ones(d_model).to(device=device))
+        self.g = nn.Parameter(torch.ones(d_model).to(device=device, dtype=torch.float32))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """"""
@@ -170,7 +170,7 @@ class SoftMax(nn.Module):
         self.dim = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        max_value = torch.max(x)
+        max_value = torch.max(x, dim=self.dim, keepdim=True).values
         return torch.exp(x - max_value) / torch.sum(torch.exp(x - max_value), dim=self.dim, keepdim=True)
 
 
@@ -327,7 +327,7 @@ class TransformerLM(nn.Module):
 
         self.softmax = SoftMax(dim=-1)
 
-    def forward(self, x: Float[Tensor, "... seq_len d_model"]) -> Float[Tensor, "... seq_len vocab_size"]:
+    def forward(self, x: Float[Tensor, "... seq_len"]) -> Float[Tensor, "... seq_len vocab_size"]:
         result = self.token_embedding_layer(x)
 
         for transformer_block in self.transformer_blocks:
