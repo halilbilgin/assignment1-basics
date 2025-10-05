@@ -6,7 +6,14 @@ import torch
 
 class LLMInference:
     def __init__(
-        self, tokenizer: Tokenizer, llm: TransformerLM, max_token_generated: int, temperature: float, top_p: float, device: torch.device | None = None
+        self,
+        tokenizer: Tokenizer,
+        llm: TransformerLM,
+        max_token_generated: int,
+        temperature: float,
+        top_p: float,
+        frequency_penalty: float = 2.0,
+        device: torch.device | None = None,
     ) -> None:
         self.tokenizer = tokenizer
         self.llm = llm
@@ -14,20 +21,28 @@ class LLMInference:
         self.temperature = temperature
         self.top_p = top_p
         self.device = device
+        self.frequency_penalty = frequency_penalty
 
-    def encode(self, text, max_token_generated: int | None = None, temperature: float | None = None, top_p: float | None = None) -> str:
+    def encode(
+        self, text, max_token_generated: int | None = None, temperature: float | None = None, top_p: float | None = None
+    ) -> str:
         temperature, top_p = temperature or self.temperature, top_p or self.top_p
         max_token_generated = max_token_generated or self.max_token_generated
         tokens = self.tokenizer.encode(text)
-          
+
         generated_text: str = ""
-        
         for _ in range(max_token_generated):
             tokens_torchified = torch.from_numpy(np.asarray(tokens)).to(device=self.device).reshape(1, -1)
             # get only last token's next token prediction as we don't care the rest for this use case.
             next_token_predictions: torch.Tensor = self.llm(tokens_torchified)[:, -1:, :]
 
             logits = next_token_predictions / temperature
+            # Apply frequency penalty
+            if self.frequency_penalty != 1.0:
+                token_counts = np.bincount(tokens, minlength=logits.shape[-1])
+                penalty = torch.from_numpy(token_counts).float().to(device=self.device) * (self.frequency_penalty - 1.0)
+                logits -= penalty.reshape(1, 1, -1)
+
             probs = self.llm.softmax(logits)
 
             # do top p
@@ -41,7 +56,7 @@ class LLMInference:
             probs = torch.zeros_like(probs)
             probs.scatter_(-1, sorted_indices, sorted_probs)
             pmf = probs / probs.sum(dim=-1, keepdim=True)
-            
+
             cdf = torch.cumsum(pmf, dim=-1)
             uniform_samples = torch.rand(cdf.shape[0]).to(device=self.device).reshape(-1, 1, 1)
             token_predicted = torch.searchsorted(cdf, uniform_samples)[0].cpu().numpy()[0, 0].item()
@@ -53,16 +68,4 @@ class LLMInference:
             if generated_text.endswith("<|endoftext|>"):
                 break
 
-        
         return generated_text
-
-
-
-
-
-
-
-
-
-
-
